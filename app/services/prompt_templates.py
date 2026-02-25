@@ -14,9 +14,14 @@ def build_content_generation_prompt(
     banned_words: list[str] | None = None,
     hook_candidates: list[str] | None = None,
     target_chars: int = 280,
+    tone_style: str = "CASUAL",
+    emoji_mode: str = "ON",
+    style_prompt: str = "",
 ) -> str:
     banned = banned_words or DEFAULT_BANNED_WORDS
     hooks = hook_candidates or ["체크리스트", "문제해결", "비교"]
+    tone_label = "존댓말" if tone_style == "FORMAL" else "반말"
+    emoji_label = "허용" if emoji_mode == "ON" else "금지"
 
     return dedent(
         f"""
@@ -28,6 +33,11 @@ def build_content_generation_prompt(
           "threads_body": "string",
           "threads_first_reply": "string",
           "instagram_caption": "string",
+          "render_options": {{
+            "font_style": "sans|serif|mono",
+            "background_mode": "google_free|generated|stock",
+            "template_style": "campaign|classic"
+          }},
           "slides": [
             {{"slide_no": 1, "title": "string", "body": "string"}}
           ]
@@ -40,13 +50,15 @@ def build_content_generation_prompt(
         3) threads_body 안에 "링크는 첫 댓글" 문구를 반드시 포함
         4) threads_first_reply는 고지문 + 링크를 모두 포함
         5) instagram_caption은 "프로필 링크" 유도 문구를 포함
-        6) slides는 5~7장, slide_no는 1부터 연속 증가
+        6) slides는 4~7장, slide_no는 1부터 연속 증가
         7) 과장/의학적 단정 금지어 사용 금지: {", ".join(banned)}
         8) 중복 문장 반복 금지
 
         스타일 가이드:
         - 추천 훅 유형: {", ".join(hooks)}
         - 목표 본문 길이: 약 {target_chars}자
+        - 말투: {tone_label}
+        - 이모티콘: {emoji_label}
         - 정보형/체크리스트/비교 중심
         - 첫 훅은 손실회피/주의환기 톤으로 직설적으로 작성
           예: "이거 비교 안 하면 손해 봅니다", "모르면 돈만 더 씁니다"
@@ -58,6 +70,8 @@ def build_content_generation_prompt(
         - topic: {topic}
         - category: {category}
         - short_url: {short_url}
+        - 추가 프롬프트:
+        {style_prompt or "없음"}
         """
     ).strip()
 
@@ -83,5 +97,39 @@ def build_weekly_hook_prompt(*, top_terms: list[str], template_count: int = 3) -
 
         상위 키워드:
         {", ".join(seed_terms)}
+        """
+    ).strip()
+
+
+def build_comment_reply_prompt(
+    *,
+    comment_text: str,
+    keyword: str,
+    style_prompt: str,
+    max_chars: int = 120,
+) -> str:
+    return dedent(
+        f"""
+        너는 인스타 댓글 자동응답 카피라이터다.
+        반드시 JSON object 하나만 출력하고, 설명은 출력하지 마라.
+
+        출력 스키마:
+        {{
+          "reply": "string"
+        }}
+
+        제약:
+        1) reply 길이 {max_chars}자 이하
+        2) 과장/허위/의학적 단정 금지
+        3) 욕설/비하/정치/종교 논쟁 유도 금지
+        4) 판매 유도 문구는 한 문장 이내
+        5) 한국어로 작성
+
+        운영 스타일:
+        {style_prompt or "친절하고 간결하게, 행동 유도는 짧게."}
+
+        입력:
+        - 댓글 원문: {comment_text}
+        - 트리거 키워드: {keyword}
         """
     ).strip()

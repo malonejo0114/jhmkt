@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>cpang jehyu | 계정 선택</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="app-mono-body">
+  <main class="mono-wrap">
+    <header class="mono-header">
+      <div>
+        <p class="mono-kicker">CPANG JEHYU</p>
+        <h1>계정 선택</h1>
+        <p class="mono-sub">먼저 계정을 고르고, 그 안에서 생성/검수/예약/댓글룰을 처리합니다.</p>
+      </div>
+      <div class="mono-header-actions">
+        <span class="mono-user">{{ user.display_name }}</span>
+        <form method="post" action="/auth/logout">
+          <button type="submit" class="mono-btn mono-btn-outline">로그아웃</button>
+        </form>
+      </div>
+    </header>
+
+    {% if flash %}<div class="mono-flash">{{ flash }}</div>{% endif %}
+
+    <section class="mono-stats">
+      <article class="mono-stat"><h2>Threads 계정</h2><strong>{{ threads_accounts|length }}</strong></article>
+      <article class="mono-stat"><h2>Instagram 계정</h2><strong>{{ instagram_accounts|length }}</strong></article>
+      <article class="mono-stat"><h2>오늘 잡</h2><strong>{{ today_jobs|length }}</strong></article>
+      <article class="mono-stat"><h2>오늘 승인완료</h2><strong>{{ ready_today }}</strong></article>
+    </section>
+
+    <section class="mono-grid two">
+      <article class="mono-panel">
+        <h3>1) 계정 연동</h3>
+        <div class="mono-actions">
+          <a class="mono-btn mono-btn-pink" href="/auth/connect/threads/start">Threads 연동</a>
+          <a class="mono-btn mono-btn-pink" href="/auth/connect/instagram/start">Instagram 연동</a>
+        </div>
+        <details class="mono-details">
+          <summary>토큰 수동 등록 (고급)</summary>
+          <form method="post" action="/app/actions/add-threads-account" class="mono-form">
+            <input name="name" placeholder="Threads 계정명" required />
+            <input name="threads_user_id" placeholder="threads_user_id" required />
+            <input name="access_token" placeholder="access_token" required />
+            <button type="submit" class="mono-btn mono-btn-black">Threads 저장</button>
+          </form>
+          <form method="post" action="/app/actions/add-instagram-account" class="mono-form">
+            <input name="name" placeholder="Instagram 계정명" required />
+            <input name="ig_user_id" placeholder="ig_user_id" required />
+            <input name="access_token" placeholder="access_token" required />
+            <button type="submit" class="mono-btn mono-btn-black">Instagram 저장</button>
+          </form>
+        </details>
+      </article>
+
+      <article class="mono-panel">
+        <h3>2) 연동 상태</h3>
+        <ul class="mono-list">
+          {% for key, ok in setup_summary.checks.items() %}
+          <li><span>{{ key }}</span><strong>{{ "OK" if ok else "MISSING" }}</strong></li>
+          {% endfor %}
+        </ul>
+      </article>
+    </section>
+
+    <section class="mono-panel">
+      <h3>3) 작업할 Threads 계정 선택</h3>
+      <div class="mono-account-grid">
+        {% for acc in threads_accounts %}
+        <article class="mono-account-card">
+          <h4>{{ acc.name }}</h4>
+          <p>ID: {{ acc.threads_user_id }}</p>
+          <p>검수대기: {{ pending_by_threads.get(acc.id, 0) }}건</p>
+          {% if instagram_accounts %}
+          <a class="mono-btn mono-btn-black" href="/app/accounts/{{ acc.id }}?ig_account_id={{ instagram_accounts[0].id }}">작업실 열기</a>
+          {% else %}
+          <a class="mono-btn mono-btn-black" href="/app/accounts/{{ acc.id }}">작업실 열기(Threads 전용)</a>
+          {% endif %}
+        </article>
+        {% else %}
+        <p class="mono-empty">연결된 Threads 계정이 없습니다. 위에서 먼저 연동하세요.</p>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

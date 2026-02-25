@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/api/index.py"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/cron/daily-bootstrap",
+      "schedule": "5 15 * * *"
+    },
+    {
+      "path": "/cron/dispatch/due",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/cron/improve/daily",
+      "schedule": "40 16 * * *"
+    },
+    {
+      "path": "/cron/improve/weekly",
+      "schedule": "0 17 * * 0"
+    },
+    {
+      "path": "/cron/engagement/process",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
+

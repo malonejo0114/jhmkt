@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>회원가입 | ArcticFlow</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="auth-body">
+  <main class="auth-wrap">
+    <section class="auth-card">
+      <a class="back-link" href="/">← 홈으로</a>
+      <h1>회원가입</h1>
+      <p class="auth-sub">5분 내 자동화 운영 세팅을 시작하세요.</p>
+      {% if flash %}<div class="flash danger">{{ flash }}</div>{% endif %}
+      <form method="post" action="/auth/register" class="auth-form">
+        <label>이름</label>
+        <input type="text" name="display_name" required />
+        <label>이메일</label>
+        <input type="email" name="email" required />
+        <label>비밀번호 (8자 이상)</label>
+        <input type="password" name="password" minlength="8" required />
+        <label>비밀번호 확인</label>
+        <input type="password" name="password_confirm" minlength="8" required />
+        <button type="submit" class="btn btn-solid">계정 만들기</button>
+      </form>
+      <p class="auth-foot">이미 계정이 있나요? <a href="/auth/login">로그인</a></p>
+    </section>
+  </main>
+</body>
+</html>

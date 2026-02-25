@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Control Room | ArcticFlow</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="app-body">
+  <main class="app-wrap">
+    <header class="app-header">
+      <div>
+        <p class="kicker">ARCTICFLOW CONTROL ROOM</p>
+        <h1>운영 대시보드</h1>
+      </div>
+      <div class="header-right">
+        <span class="user-badge">{{ user.display_name }} ({{ user.email }})</span>
+        <form method="post" action="/auth/logout"><button type="submit" class="btn btn-ghost">로그아웃</button></form>
+      </div>
+    </header>
+
+    {% if flash %}<div class="flash">{{ flash }}</div>{% endif %}
+
+    <section class="stats-grid">
+      <article class="stat-card"><h2>오늘 콘텐츠</h2><strong>{{ today_units|length }}</strong></article>
+      <article class="stat-card"><h2>오늘 잡</h2><strong>{{ today_jobs|length }}</strong></article>
+      <article class="stat-card"><h2>Threads 계정</h2><strong>{{ threads_accounts|length }}</strong></article>
+      <article class="stat-card"><h2>Instagram 계정</h2><strong>{{ instagram_accounts|length }}</strong></article>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel">
+        <h3>빠른 실행</h3>
+        <form method="post" action="/app/actions/generate" class="row-form">
+          <label>생성 날짜</label>
+          <input type="date" name="biz_date" value="{{ today }}" required />
+          <label>개수(2~3)</label>
+          <input type="number" name="unit_count" value="3" min="2" max="3" required />
+          <button type="submit">오늘 콘텐츠 생성</button>
+        </form>
+
+        <form method="post" action="/app/actions/schedule" class="row-form">
+          <label>스케줄 날짜</label>
+          <input type="date" name="biz_date" value="{{ today }}" required />
+          <button type="submit">오늘 스케줄 생성</button>
+        </form>
+
+        <form method="post" action="/app/actions/bootstrap" class="row-form">
+          <label>부트스트랩</label>
+          <input type="date" name="biz_date" value="{{ today }}" required />
+          <button type="submit">생성+스케줄+큐</button>
+        </form>
+
+        <form method="post" action="/app/actions/dispatch" class="row-form">
+          <label>즉시 발행</label>
+          <input type="number" name="limit" value="20" min="1" max="100" />
+          <button type="submit">디스패치 실행</button>
+        </form>
+
+        <div class="actions-inline">
+          <form method="post" action="/app/actions/improve-daily"><button type="submit">일간 개선</button></form>
+          <form method="post" action="/app/actions/improve-weekly"><button type="submit">주간 개선</button></form>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h3>최근 7일 성과</h3>
+        <table>
+          <thead>
+            <tr><th>날짜</th><th>유닛</th><th>성공</th><th>실패</th><th>조회</th><th>좋아요</th></tr>
+          </thead>
+          <tbody>
+          {% for row in dashboard.last_7_days %}
+            <tr>
+              <td>{{ row.biz_date }}</td>
+              <td>{{ row.content_units }}</td>
+              <td>{{ row.jobs_success }}</td>
+              <td>{{ row.jobs_failed }}</td>
+              <td>{{ row.threads_views }}</td>
+              <td>{{ row.threads_likes }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </article>
+    </section>
+
+    <section class="panel-grid">
+      <article class="panel">
+        <h3>계정 등록</h3>
+        <div class="actions-inline">
+          <a class="btn btn-solid" href="/auth/connect/threads/start">Threads 연동하기</a>
+          <a class="btn btn-solid" href="/auth/connect/instagram/start">Instagram 연동하기</a>
+        </div>
+        <p class="inline-help">OAuth 연동이 안될 때만 아래 수동 입력을 사용하세요.</p>
+
+        <form method="post" action="/app/actions/add-threads-account" class="stack-form">
+          <h4>Threads</h4>
+          <input name="name" placeholder="계정명" required />
+          <input name="threads_user_id" placeholder="threads_user_id" required />
+          <input name="access_token" placeholder="access_token" required />
+          <button type="submit">Threads 계정 저장</button>
+        </form>
+
+        <form method="post" action="/app/actions/add-instagram-account" class="stack-form">
+          <h4>Instagram</h4>
+          <input name="name" placeholder="계정명" required />
+          <input name="ig_user_id" placeholder="ig_user_id" required />
+          <input name="access_token" placeholder="access_token" required />
+          <button type="submit">Instagram 계정 저장</button>
+        </form>
+      </article>
+
+      <article class="panel">
+        <h3>Seed 등록</h3>
+        <form method="post" action="/app/actions/trend-sync" class="stack-form">
+          <button type="submit">네이버 트렌드 동기화 실행</button>
+        </form>
+        <form method="post" action="/app/actions/add-seed" class="stack-form">
+          <input name="topic" placeholder="주제" required />
+          <input name="category" placeholder="카테고리" required />
+          <input name="source_url" placeholder="쿠팡 URL" required />
+          <div class="inline-grid">
+            <select name="source_type">
+              <option value="PRODUCT_URL">PRODUCT_URL</option>
+              <option value="SEARCH_URL">SEARCH_URL</option>
+            </select>
+            <input type="number" name="priority" min="1" max="100" value="50" />
+          </div>
+          <button type="submit">Seed 저장</button>
+        </form>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h3>오늘 콘텐츠 유닛</h3>
+      <div class="unit-list">
+      {% for unit in today_units %}
+        <article class="unit-item">
+          <div class="unit-top">
+            <span class="slot">slot {{ unit.slot_no }}</span>
+            <span class="state">{{ unit.generation_status }}</span>
+          </div>
+          <h4>{{ unit.topic }}</h4>
+          <p>{{ unit.category }}</p>
+          <small>{{ unit.scheduled_at }}</small>
+        </article>
+      {% else %}
+        <p class="empty">아직 생성된 유닛이 없습니다.</p>
+      {% endfor %}
+      </div>
+    </section>
+
+    <section class="panel">
+      <h3>검수 대기 콘텐츠 (승인 후에만 스케줄/발행)</h3>
+      <p class="inline-help">승인 버튼을 누르면 해당 날짜의 스케줄 생성과 큐 적재를 자동으로 시도합니다.</p>
+      <div class="review-list">
+      {% for unit in review_queue %}
+        <article class="review-item">
+          <div class="review-meta">
+            <strong>{{ unit.biz_date }} / slot {{ unit.slot_no }}</strong>
+            <span>{{ unit.topic }} · {{ unit.category }}</span>
+          </div>
+          <form method="post" action="/app/actions/content/{{ unit.id }}/update" class="review-form">
+            <label>Threads 본문</label>
+            <textarea name="threads_body" rows="4" required>{{ unit.threads_body }}</textarea>
+            <label>Threads 첫 댓글</label>
+            <textarea name="threads_first_reply" rows="2" required>{{ unit.threads_first_reply }}</textarea>
+            <label>Instagram 캡션</label>
+            <textarea name="instagram_caption" rows="3" required>{{ unit.instagram_caption }}</textarea>
+            <div class="review-actions">
+              <button type="submit">문구 저장</button>
+            </div>
+          </form>
+          <div class="review-actions">
+            <form method="post" action="/app/actions/content/{{ unit.id }}/approve">
+              <button type="submit">승인</button>
+            </form>
+            <form method="post" action="/app/actions/content/{{ unit.id }}/reject">
+              <button type="submit" class="btn btn-reject">반려</button>
+            </form>
+          </div>
+        </article>
+      {% else %}
+        <p class="empty">검수 대기 항목이 없습니다.</p>
+      {% endfor %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>로그인 | ArcticFlow</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="auth-body">
+  <main class="auth-wrap">
+    <section class="auth-card">
+      <a class="back-link" href="/">← 홈으로</a>
+      <h1>로그인</h1>
+      <p class="auth-sub">운영 대시보드에 접속합니다.</p>
+      {% if flash %}<div class="flash danger">{{ flash }}</div>{% endif %}
+      <form method="post" action="/auth/login" class="auth-form">
+        <label>이메일</label>
+        <input type="email" name="email" required />
+        <label>비밀번호</label>
+        <input type="password" name="password" required />
+        <button type="submit" class="btn btn-solid">로그인</button>
+      </form>
+      <p class="auth-foot">계정이 없나요? <a href="/auth/register">회원가입</a></p>
+    </section>
+  </main>
+</body>
+</html>

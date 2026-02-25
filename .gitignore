@@ -1,0 +1,4 @@
+.env
+.local_assets/
+__pycache__/
+*.pyc

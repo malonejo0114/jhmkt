@@ -278,12 +278,14 @@ SHORT_YEAR_DATE_RE = re.compile(
     r"(?<!\d)(?:['’])?(?P<year>\d{2})\s*년\s*(?P<month>1[0-2]|0?[1-9])\s*[./\-월]\s*(?P<day>3[01]|[12]\d|0?[1-9])\s*일?"
 )
 COMPACT_DATE_RE = re.compile(r"\b(?P<year>(?:19|20)\d{2})(?P<month>0[1-9]|1[0-2])(?P<day>0[1-9]|[12]\d|3[01])\b")
+COMPACT_SHORT_DATE_RE = re.compile(r"\b(?P<year>\d{2})(?P<month>0[1-9]|1[0-2])(?P<day>0[1-9]|[12]\d|3[01])\b")
 MONTH_DAY_RE = re.compile(r"(?P<month>1[0-2]|0?[1-9])\s*월\s*(?P<day>3[01]|[12]\d|0?[1-9])\s*일")
 MERIDIEM_HOUR_RE = re.compile(
     r"(?P<marker>오전|오후|am|pm|AM|PM|새벽|아침|저녁|밤)\s*(?P<hour>2[0-3]|[01]?\d)\s*시(?:\s*(?P<minute>[0-5]?\d)\s*분?)?"
 )
 HOUR_MINUTE_RE = re.compile(r"(?P<hour>2[0-3]|[01]?\d)\s*(?:시|:)\s*(?P<minute>[0-5]?\d)?\s*분?")
 HOUR_ONLY_RE = re.compile(r"(?P<hour>2[0-3]|[01]?\d)\s*시")
+UNKNOWN_HOUR_RE = re.compile(r"(생시|출생시간|태어난\s*시간)\s*(모름|미상|몰라)")
 
 
 @dataclass
@@ -329,12 +331,17 @@ class FourPillarsResult:
     month_hanja: str
     day_hanja: str
     hour_hanja: str
+    hour_known: bool = True
 
     def korean_string(self) -> str:
-        return f"{self.year}년주, {self.month}월주, {self.day}일주, {self.hour}시주"
+        if self.hour_known:
+            return f"{self.year}년주, {self.month}월주, {self.day}일주, {self.hour}시주"
+        return f"{self.year}년주, {self.month}월주, {self.day}일주, 시주 미상"
 
     def hanja_string(self) -> str:
-        return f"{self.year_hanja}年柱, {self.month_hanja}月柱, {self.day_hanja}日柱, {self.hour_hanja}時柱"
+        if self.hour_known:
+            return f"{self.year_hanja}年柱, {self.month_hanja}月柱, {self.day_hanja}日柱, {self.hour_hanja}時柱"
+        return f"{self.year_hanja}年柱, {self.month_hanja}月柱, {self.day_hanja}日柱, 時柱未詳"
 
 
 @dataclass
@@ -346,6 +353,7 @@ class SajuReplyContext:
     question_text: str
     birth_summary: str
     four_pillars: FourPillarsResult | None
+    hour_unknown: bool
     error_message: str | None
 
 
@@ -464,11 +472,11 @@ def _get_hour_pillar(day_stem: str, hour: int, minute: int) -> tuple[str, str]:
     return HEAVENLY_STEMS[hour_stem_idx], EARTHLY_BRANCHES[shichen]
 
 
-def calculate_four_pillars(birth: BirthInfoPartial) -> FourPillarsResult:
-    if not birth.is_complete():
-        raise ValueError("사주 계산을 위해 생년월일과 생시가 필요합니다.")
-    if birth.year is None or birth.month is None or birth.day is None or birth.hour is None:
+def calculate_four_pillars(birth: BirthInfoPartial, *, allow_unknown_hour: bool = False) -> FourPillarsResult:
+    if birth.year is None or birth.month is None or birth.day is None:
         raise ValueError("사주 계산 입력값이 부족합니다.")
+    if birth.hour is None and not allow_unknown_hour:
+        raise ValueError("사주 계산을 위해 생년월일과 생시가 필요합니다.")
 
     minute = birth.minute or 0
     year = birth.year
@@ -481,17 +489,27 @@ def calculate_four_pillars(birth: BirthInfoPartial) -> FourPillarsResult:
     year_stem, year_branch = _get_year_pillar(year)
     month_stem, month_branch = _get_month_pillar(year, month, day)
     day_stem, day_branch = _get_day_pillar(year, month, day)
-    hour_stem, hour_branch = _get_hour_pillar(day_stem, birth.hour, minute)
+    hour_known = birth.hour is not None
+    if hour_known:
+        hour_stem, hour_branch = _get_hour_pillar(day_stem, birth.hour, minute)
+    else:
+        hour_stem, hour_branch = "미", "상"
+        hour_hanja = "未詳"
 
     return FourPillarsResult(
         year=f"{year_stem}{year_branch}",
         month=f"{month_stem}{month_branch}",
         day=f"{day_stem}{day_branch}",
-        hour=f"{hour_stem}{hour_branch}",
+        hour=f"{hour_stem}{hour_branch}" if hour_known else "미상",
         year_hanja=f"{HEAVENLY_STEMS_HANJA[HEAVENLY_STEMS.index(year_stem)]}{EARTHLY_BRANCHES_HANJA[EARTHLY_BRANCHES.index(year_branch)]}",
         month_hanja=f"{HEAVENLY_STEMS_HANJA[HEAVENLY_STEMS.index(month_stem)]}{EARTHLY_BRANCHES_HANJA[EARTHLY_BRANCHES.index(month_branch)]}",
         day_hanja=f"{HEAVENLY_STEMS_HANJA[HEAVENLY_STEMS.index(day_stem)]}{EARTHLY_BRANCHES_HANJA[EARTHLY_BRANCHES.index(day_branch)]}",
-        hour_hanja=f"{HEAVENLY_STEMS_HANJA[HEAVENLY_STEMS.index(hour_stem)]}{EARTHLY_BRANCHES_HANJA[EARTHLY_BRANCHES.index(hour_branch)]}",
+        hour_hanja=(
+            f"{HEAVENLY_STEMS_HANJA[HEAVENLY_STEMS.index(hour_stem)]}{EARTHLY_BRANCHES_HANJA[EARTHLY_BRANCHES.index(hour_branch)]}"
+            if hour_known
+            else hour_hanja
+        ),
+        hour_known=hour_known,
     )
 
 
@@ -526,16 +544,22 @@ def _extract_birth_from_text(text: str) -> BirthInfoPartial:
         info.month = int(full_date.group("month"))
         info.day = int(full_date.group("day"))
     else:
-        short_year_date = SHORT_YEAR_DATE_RE.search(raw)
-        if short_year_date:
-            info.year = _expand_two_digit_year(int(short_year_date.group("year")))
-            info.month = int(short_year_date.group("month"))
-            info.day = int(short_year_date.group("day"))
+        compact_short = COMPACT_SHORT_DATE_RE.search(raw)
+        if compact_short:
+            info.year = _expand_two_digit_year(int(compact_short.group("year")))
+            info.month = int(compact_short.group("month"))
+            info.day = int(compact_short.group("day"))
         else:
-            month_day = MONTH_DAY_RE.search(raw)
-            if month_day:
-                info.month = int(month_day.group("month"))
-                info.day = int(month_day.group("day"))
+            short_year_date = SHORT_YEAR_DATE_RE.search(raw)
+            if short_year_date:
+                info.year = _expand_two_digit_year(int(short_year_date.group("year")))
+                info.month = int(short_year_date.group("month"))
+                info.day = int(short_year_date.group("day"))
+            else:
+                month_day = MONTH_DAY_RE.search(raw)
+                if month_day:
+                    info.month = int(month_day.group("month"))
+                    info.day = int(month_day.group("day"))
 
     meridiem_hour = MERIDIEM_HOUR_RE.search(raw)
     if meridiem_hour:
@@ -560,6 +584,8 @@ def _extract_birth_from_text(text: str) -> BirthInfoPartial:
                 if hour_only:
                     info.hour = int(hour_only.group("hour"))
                     info.minute = 0
+    if info.hour is None and ("생시모름" in raw or "생시 미상" in raw or UNKNOWN_HOUR_RE.search(raw)):
+        info.minute = 0
 
     if info.is_lunar is None and "lunar" in lowered:
         info.is_lunar = True
@@ -591,11 +617,32 @@ def _clean_question_text(text: str) -> str:
     cleaned = DATE_RE.sub(" ", cleaned)
     cleaned = SHORT_YEAR_DATE_RE.sub(" ", cleaned)
     cleaned = COMPACT_DATE_RE.sub(" ", cleaned)
+    cleaned = COMPACT_SHORT_DATE_RE.sub(" ", cleaned)
     cleaned = MONTH_DAY_RE.sub(" ", cleaned)
     cleaned = MERIDIEM_HOUR_RE.sub(" ", cleaned)
     cleaned = HOUR_MINUTE_RE.sub(" ", cleaned)
-    for token in ("양력", "음력", "윤달", "윤월", "생년월일", "생시", "년생"):
+    for token in (
+        "양력",
+        "음력",
+        "윤달",
+        "윤월",
+        "생년월일",
+        "생시",
+        "생시모름",
+        "생시 미상",
+        "출생시간",
+        "출생 시간",
+        "시간모름",
+        "시간 미상",
+        "모름",
+        "미상",
+        "몰라요",
+        "몰라",
+        "년생",
+    ):
         cleaned = cleaned.replace(token, " ")
+    for label in SHICHEN_HOUR_MAP:
+        cleaned = cleaned.replace(label, " ")
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,.!?~")
     return cleaned
 
@@ -607,6 +654,8 @@ def _birth_summary(info: BirthInfoPartial) -> str:
     if info.hour is not None:
         minute = info.minute or 0
         parts.append(f"{info.hour:02d}:{minute:02d}")
+    elif info.year is not None and info.month is not None and info.day is not None:
+        parts.append("생시 미상")
     if info.is_lunar is True:
         parts.append("음력")
     elif info.is_lunar is False:
@@ -686,7 +735,8 @@ def build_saju_reply_context(current_text: str, history_texts: list[str]) -> Saj
 
     question = _clean_question_text(current_text)
     missing = _missing_fields(merged)
-    if missing:
+    non_hour_missing = [item for item in missing if item != "생시"]
+    if non_hour_missing:
         return SajuReplyContext(
             has_birth_hint=has_hint,
             is_complete=False,
@@ -695,11 +745,13 @@ def build_saju_reply_context(current_text: str, history_texts: list[str]) -> Saj
             question_text=question,
             birth_summary=_birth_summary(merged),
             four_pillars=None,
+            hour_unknown=False,
             error_message=None,
         )
 
+    hour_unknown = "생시" in missing
     try:
-        pillars = calculate_four_pillars(merged)
+        pillars = calculate_four_pillars(merged, allow_unknown_hour=hour_unknown)
     except Exception as exc:  # noqa: BLE001
         return SajuReplyContext(
             has_birth_hint=True,
@@ -709,16 +761,18 @@ def build_saju_reply_context(current_text: str, history_texts: list[str]) -> Saj
             question_text=question,
             birth_summary=_birth_summary(merged),
             four_pillars=None,
+            hour_unknown=False,
             error_message=f"생년월일 형식을 다시 확인해주세요. ({str(exc)[:80]})",
         )
 
     return SajuReplyContext(
         has_birth_hint=has_hint,
         is_complete=True,
-        missing_fields=[],
+        missing_fields=(["생시"] if hour_unknown else []),
         birth=merged,
         question_text=question,
         birth_summary=_birth_summary(merged),
         four_pillars=pillars,
+        hour_unknown=hour_unknown,
         error_message=None,
     )

@@ -121,16 +121,19 @@ def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: Thre
         topic = infer_saju_topic(question)
         pillars_kor = saju_ctx.four_pillars.korean_string()
         pillars_hanja = saju_ctx.four_pillars.hanja_string()
+        evidence_hint = "사주(일주 중심) 근거" if saju_ctx.hour_unknown else "사주(일주/시주) 근거"
+        hour_note = "주의: 생시 미상으로 시주 제외 해석.\n" if saju_ctx.hour_unknown else ""
         saju_style = (
             f"{style_prompt}\n" if style_prompt else ""
         ) + (
             "만세력 기반 한 줄 답변. 단정/공포 조장 금지, 실천 팁 중심.\n"
+            f"{hour_note}"
             f"질문 주제: {topic}\n"
             f"출생정보: {saju_ctx.birth_summary}\n"
             f"사주(한글): {pillars_kor}\n"
             f"사주(한자): {pillars_hanja}\n"
             f"질문: {question}\n"
-            "답변 규칙: 질문 주제를 직접 언급하고, 사주(일주/시주) 근거를 짧게 포함하며, 한국어 한 문장으로 작성."
+            f"답변 규칙: 질문 주제를 직접 언급하고, {evidence_hint}를 짧게 포함하며, 한국어 한 문장으로 작성."
         )
         answer_fallback = build_saju_topic_fallback(topic, pillars_kor)
         if not settings.engagement_ai_reply_enabled:

@@ -8,7 +8,10 @@
 </head>
 <body class="app-mono-body">
   <main class="mono-wrap">
-    {% set return_to = '/app/accounts/' ~ threads_account.id ~ '?ig_account_id=' ~ (selected_ig.id if selected_ig else '') ~ '&biz_date=' ~ today %}
+    {% set return_to = '/app/accounts/' ~ threads_account.id ~ '?biz_date=' ~ today %}
+    {% if selected_ig %}
+      {% set return_to = return_to ~ '&ig_account_id=' ~ selected_ig.id %}
+    {% endif %}
     <header class="mono-header">
       <div>
         <a class="mono-back" href="/app">← 계정 목록으로</a>
@@ -131,6 +134,20 @@
           <input type="number" name="limit" value="30" min="1" max="100" />
           <button type="submit" class="mono-btn mono-btn-black">지금 due 잡 실행(테스트용)</button>
         </form>
+        <hr class="mono-divider" />
+        <h4>스레드 수동 게시 (사진 1장 가능)</h4>
+        <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/publish-manual" class="mono-form js-single-submit" enctype="multipart/form-data">
+          {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+          <input type="hidden" name="biz_date" value="{{ today }}" />
+          <label>게시 본문</label>
+          <textarea name="post_text" rows="3" placeholder="직접 쓸 스레드 본문" required></textarea>
+          <label>첫 답글(선택)</label>
+          <textarea name="first_reply" rows="2" placeholder="선택: 게시 직후 달 첫 답글"></textarea>
+          <label>사진 첨부(선택)</label>
+          <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp,image/*" />
+          <p class="mono-help">AI 생성 없이 지금 바로 스레드에 게시합니다.</p>
+          <button type="submit" class="mono-btn mono-btn-pink" data-loading-text="업로드/게시 중...">지금 스레드 게시</button>
+        </form>
       </article>
     </section>
 
@@ -186,7 +203,7 @@
       <article class="mono-panel">
         <h3>4) 카드뉴스 수동 생성</h3>
         {% if selected_ig %}
-        <form method="post" action="/app/accounts/{{ threads_account.id }}/cards/create-manual" class="mono-form">
+        <form method="post" action="/app/accounts/{{ threads_account.id }}/cards/create-manual" class="mono-form js-single-submit">
           <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
           <label>주제</label>
           <input name="topic" placeholder="예: 에어프라이어 비교 가이드" required />
@@ -359,7 +376,48 @@
 
     <section class="mono-grid two">
       <article class="mono-panel">
-        <h3>7) 댓글 답글 자동화 (DM 제거)</h3>
+        <h3>7) 스레드 댓글 자동답글</h3>
+        <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comments/process" class="mono-form js-single-submit">
+          {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+          <input type="hidden" name="biz_date" value="{{ today }}" />
+          <div class="mono-form-inline">
+            <div>
+              <label>최근 게시물 스캔 수</label>
+              <input type="number" name="limit_posts_per_account" min="1" max="50" value="20" />
+            </div>
+            <div>
+              <label>게시물당 댓글 조회 수</label>
+              <input type="number" name="limit_comments_per_post" min="1" max="100" value="50" />
+            </div>
+            <div>
+              <label>처리 잡 제한</label>
+              <input type="number" name="limit_jobs" min="1" max="200" value="100" />
+            </div>
+          </div>
+          <p class="mono-help">스레드 댓글 수집 → 답글잡 생성 → AI 답글 발행을 한 번에 실행합니다.</p>
+          <button type="submit" class="mono-btn mono-btn-pink" data-loading-text="댓글 처리 중...">스레드 댓글 처리 실행</button>
+        </form>
+
+        <h4>스레드 질문/답글 로그</h4>
+        <table class="mono-table">
+          <thead><tr><th>질문(댓글)</th><th>우리 답글</th><th>상태</th><th>시각</th></tr></thead>
+          <tbody>
+          {% for row in recent_threads_qa_rows %}
+            <tr>
+              <td>{{ row.question }}</td>
+              <td>{{ row.answer }}</td>
+              <td>{{ row.status }}</td>
+              <td>{{ row.created_at }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4">내역 없음</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </article>
+
+      <article class="mono-panel">
+        <h3>8) 인스타 댓글 자동화 (선택)</h3>
         {% if selected_ig %}
         <form method="post" action="/app/accounts/{{ threads_account.id }}/comment-rules/simple" class="mono-form">
           <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
@@ -398,9 +456,10 @@
         <p class="mono-empty">Instagram 계정을 선택해 주세요.</p>
         {% endif %}
       </article>
+    </section>
 
-      <article class="mono-panel">
-        <h3>최근 처리 로그</h3>
+    <section class="mono-panel">
+      <h3>최근 처리 로그</h3>
         <h4>발행 잡</h4>
         <table class="mono-table">
           <thead><tr><th>ID</th><th>채널</th><th>상태</th><th>재시도</th></tr></thead>
@@ -443,8 +502,37 @@
           {% endfor %}
           </tbody>
         </table>
-      </article>
     </section>
   </main>
+  <script>
+    (() => {
+      const forms = document.querySelectorAll('form.js-single-submit');
+      forms.forEach((form) => {
+        form.addEventListener('submit', (event) => {
+          if (form.dataset.submitting === '1') {
+            event.preventDefault();
+            return;
+          }
+          form.dataset.submitting = '1';
+          const btn = form.querySelector('button[type="submit"]');
+          if (btn) {
+            btn.disabled = true;
+            if (!btn.dataset.originalText) {
+              btn.dataset.originalText = btn.textContent || '';
+            }
+            const loading = btn.dataset.loadingText || '처리 중...';
+            btn.textContent = loading;
+          }
+          let hint = form.querySelector('.mono-submit-state');
+          if (!hint) {
+            hint = document.createElement('p');
+            hint.className = 'mono-submit-state';
+            form.appendChild(hint);
+          }
+          hint.textContent = '요청을 전송했습니다. 잠시만 기다려주세요...';
+        });
+      });
+    })();
+  </script>
 </body>
 </html>

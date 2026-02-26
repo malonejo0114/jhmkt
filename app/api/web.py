@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote_plus, urlencode
 from uuid import UUID
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -22,6 +24,7 @@ from app.models import (
     ChannelType,
     CommentActionType,
     CommentTriggerType,
+    ContentStatus,
     ContentUnit,
     InstagramAccount,
     JobStatus,
@@ -83,8 +86,17 @@ from app.services.review_service import (
 from app.services.scheduler_service import schedule_today_jobs
 from app.services.seeds_service import import_seed_items
 from app.services.asset_storage import asset_public_url
+from app.services.asset_storage import save_uploaded_file
+from app.services.publisher_service import publish_threads_manual_post
 from app.services.setup_service import get_setup_summary
 from app.services.time_utils import kst_today
+from app.services.threads_engagement_service import (
+    create_threads_reply_jobs_for_pending_events,
+    ingest_threads_comment_events_polling,
+    list_threads_comment_events,
+    list_threads_reply_jobs,
+    process_pending_threads_reply_jobs,
+)
 
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 router = APIRouter(tags=["web"])
@@ -151,6 +163,16 @@ def _short_error_message(exc: Exception) -> str:
     if "활성 instagram 계정을 찾을 수 없습니다" in raw:
         return "선택한 Instagram 계정을 찾을 수 없습니다."
     return raw[:140] if raw else "알 수 없는 오류"
+
+
+def _to_absolute_public_url(path_or_url: str) -> str:
+    value = path_or_url.strip()
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    base = get_settings().public_base_url.rstrip("/")
+    if value.startswith("/"):
+        return f"{base}{value}"
+    return f"{base}/{value}"
 
 
 @router.get("/")
@@ -431,6 +453,30 @@ def app_account_workspace(
                     ),
                 }
             )
+
+    recent_threads_comment_events = [
+        item for item in list_threads_comment_events(db, limit=100) if item.threads_account_id == threads_account.id
+    ][:20]
+    recent_threads_reply_jobs = [
+        item for item in list_threads_reply_jobs(db, limit=100) if item.threads_account_id == threads_account.id
+    ][:20]
+    recent_threads_qa_rows: list[dict[str, str | None]] = []
+    if recent_threads_comment_events:
+        threads_reply_by_event = {job.comment_event_id: job for job in recent_threads_reply_jobs}
+        for event in recent_threads_comment_events:
+            matched = threads_reply_by_event.get(event.id)
+            recent_threads_qa_rows.append(
+                {
+                    "question": event.reply_text or "",
+                    "answer": (matched.reply_text if matched else "-") or "-",
+                    "status": (matched.status.value if matched else event.status.value),
+                    "created_at": (
+                        matched.created_at.isoformat()
+                        if matched and matched.created_at
+                        else (event.created_at.isoformat() if event.created_at else "")
+                    ),
+                }
+            )
     prompt_settings = get_vertical_prompt_settings(db)
 
     return templates.TemplateResponse(
@@ -454,6 +500,9 @@ def app_account_workspace(
             "recent_comment_events": recent_comment_events,
             "recent_reply_jobs": recent_reply_jobs,
             "recent_qa_rows": recent_qa_rows,
+            "recent_threads_comment_events": recent_threads_comment_events,
+            "recent_threads_reply_jobs": recent_threads_reply_jobs,
+            "recent_threads_qa_rows": recent_threads_qa_rows,
             "preview_map": preview_map,
             "brand_profiles": brand_profiles,
             "prompt_settings": prompt_settings,
@@ -470,7 +519,8 @@ def serve_local_asset(content_unit_id: str, file_name: str):
         raise HTTPException(status_code=404, detail="asset not found")
     if not target.exists() or not target.is_file():
         raise HTTPException(status_code=404, detail="asset not found")
-    return FileResponse(target, media_type="image/jpeg")
+    media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+    return FileResponse(target, media_type=media_type)
 
 
 @router.post("/app/actions/generate")
@@ -747,6 +797,112 @@ def web_create_manual_cardnews(
         )
 
 
+@router.post("/app/accounts/{threads_account_id}/threads/publish-manual")
+async def web_publish_manual_threads(
+    threads_account_id: UUID,
+    request: Request,
+    post_text: str = Form(...),
+    first_reply: str = Form(default=""),
+    image_file: UploadFile | None = File(default=None),
+    ig_account_id: UUID | None = Form(default=None),
+    biz_date: date | None = Form(default=None),
+    db: Session = Depends(get_db),
+):
+    maybe_user = _require_user_or_redirect(request, db)
+    if isinstance(maybe_user, RedirectResponse):
+        return maybe_user
+
+    target_date = biz_date or kst_today()
+    account = db.get(ThreadsAccount, threads_account_id)
+    if not account or account.status != AccountStatus.ACTIVE:
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash="수동게시실패:활성_Threads_계정을_찾을_수_없습니다.",
+            ),
+            status_code=303,
+        )
+
+    clean_text = post_text.strip()
+    if not clean_text:
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash="수동게시실패:게시본문을_입력해주세요.",
+            ),
+            status_code=303,
+        )
+
+    image_url: str | None = None
+    if image_file is not None and (image_file.filename or "").strip():
+        suffix = Path(image_file.filename or "").suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
+            return RedirectResponse(
+                _workspace_url(
+                    threads_account_id,
+                    ig_account_id=ig_account_id,
+                    biz_date=target_date,
+                    flash="수동게시실패:이미지는_jpg/jpeg/png/webp만_지원합니다.",
+                ),
+                status_code=303,
+            )
+        payload = await image_file.read()
+        if not payload:
+            return RedirectResponse(
+                _workspace_url(
+                    threads_account_id,
+                    ig_account_id=ig_account_id,
+                    biz_date=target_date,
+                    flash="수동게시실패:이미지_파일이_비어있습니다.",
+                ),
+                status_code=303,
+            )
+
+        folder_id = f"threads_manual_{uuid4().hex[:16]}"
+        file_name = f"upload{suffix}"
+        uri = save_uploaded_file(
+            folder_id=folder_id,
+            file_name=file_name,
+            file_bytes=payload,
+            content_type=image_file.content_type,
+        )
+        image_url = _to_absolute_public_url(asset_public_url(uri))
+
+    try:
+        result = publish_threads_manual_post(
+            account=account,
+            text=clean_text,
+            reply_text=first_reply.strip(),
+            image_url=image_url,
+        )
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash=(
+                    f"수동게시완료:post={result.post_id}"
+                    f"|reply={'Y' if result.reply_post_id else 'N'}"
+                ),
+            ),
+            status_code=303,
+        )
+    except Exception as exc:  # noqa: BLE001
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash=f"수동게시실패:{_short_error_message(exc)}",
+            ),
+            status_code=303,
+        )
+
+
 @router.post("/app/accounts/{threads_account_id}/prompts/save")
 def web_save_vertical_prompts(
     threads_account_id: UUID,
@@ -917,6 +1073,61 @@ def web_schedule_instagram_only(
         flash = f"카드뉴스예약완료:{result['created_jobs']}jobs"
     except Exception as exc:  # noqa: BLE001
         flash = f"카드뉴스예약실패:{_short_error_message(exc)}"
+    return RedirectResponse(
+        _workspace_url(
+            threads_account_id,
+            ig_account_id=ig_account_id,
+            biz_date=target_date,
+            flash=flash,
+        ),
+        status_code=303,
+    )
+
+
+@router.post("/app/accounts/{threads_account_id}/threads/comments/process")
+def web_process_threads_comments(
+    threads_account_id: UUID,
+    request: Request,
+    ig_account_id: UUID | None = Form(default=None),
+    biz_date: date | None = Form(default=None),
+    limit_posts_per_account: int = Form(default=20),
+    limit_comments_per_post: int = Form(default=50),
+    limit_events: int = Form(default=100),
+    limit_jobs: int = Form(default=100),
+    db: Session = Depends(get_db),
+):
+    maybe_user = _require_user_or_redirect(request, db)
+    if isinstance(maybe_user, RedirectResponse):
+        return maybe_user
+
+    target_date = biz_date or kst_today()
+    try:
+        ingest_result = ingest_threads_comment_events_polling(
+            db,
+            limit_posts_per_account=max(1, min(limit_posts_per_account, 50)),
+            limit_comments_per_post=max(1, min(limit_comments_per_post, 100)),
+            threads_account_id=threads_account_id,
+        )
+        queue_result = create_threads_reply_jobs_for_pending_events(
+            db,
+            limit=max(1, min(limit_events, 500)),
+            threads_account_id=threads_account_id,
+        )
+        send_result = process_pending_threads_reply_jobs(
+            db,
+            limit=max(1, min(limit_jobs, 500)),
+            threads_account_id=threads_account_id,
+        )
+        flash = (
+            "스레드댓글처리완료"
+            f"|events={ingest_result.get('created_events', 0)}"
+            f"|jobs={queue_result.get('created_jobs', 0)}"
+            f"|sent={send_result.get('sent', 0)}"
+            f"|failed={send_result.get('failed', 0)}"
+        )
+    except Exception as exc:  # noqa: BLE001
+        flash = f"스레드댓글처리실패:{_short_error_message(exc)}"
+
     return RedirectResponse(
         _workspace_url(
             threads_account_id,

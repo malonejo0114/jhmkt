@@ -104,3 +104,35 @@ class ReplyJobOut(BaseModel):
     last_error_message: str | None
     sent_at: datetime | None
     created_at: datetime
+
+
+class ThreadsCommentEventOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    threads_account_id: UUID
+    external_reply_id: str
+    external_media_id: str | None
+    external_from_username: str | None
+    reply_text: str
+    status: str
+    status_reason: str | None
+    created_at: datetime
+
+
+class ThreadsReplyJobOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: UUID
+    comment_event_id: UUID
+    threads_account_id: UUID
+    status: str
+    reply_text: str
+    skip_reason: str | None
+    attempts: int
+    max_attempts: int
+    next_retry_at: datetime | None
+    last_error_code: str | None
+    last_error_message: str | None
+    sent_at: datetime | None
+    created_at: datetime

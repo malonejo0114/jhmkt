@@ -24,6 +24,8 @@ from app.schemas.engagement import (
     CommentRuleToggleRequest,
     CommentRuleUpdateRequest,
     ReplyJobOut,
+    ThreadsCommentEventOut,
+    ThreadsReplyJobOut,
 )
 from app.schemas.generation import (
     EnqueueTodayRequest,
@@ -70,6 +72,14 @@ from app.services.review_service import (
     update_content_unit_copy,
 )
 from app.services.time_utils import kst_today
+from app.services.threads_engagement_service import (
+    create_threads_reply_jobs_for_pending_events,
+    ingest_threads_comment_events_polling,
+    list_threads_comment_events,
+    list_threads_reply_jobs,
+    process_pending_threads_reply_jobs,
+    retry_threads_reply_job,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify_internal_key)])
 
@@ -208,6 +218,49 @@ def admin_process_engagement(limit_events: int = 100, limit_jobs: int = 100, db:
     queue_result = create_reply_jobs_for_pending_events(db, limit=limit_events)
     send_result = process_pending_reply_jobs(db, limit=limit_jobs)
     return {"queue_result": queue_result, "send_result": send_result}
+
+
+@router.get("/engagement/threads/comment-events", response_model=list[ThreadsCommentEventOut])
+def admin_list_threads_comment_events(limit: int = 100, db: Session = Depends(get_db)):
+    events = list_threads_comment_events(db, limit=limit)
+    return [ThreadsCommentEventOut.model_validate(item) for item in events]
+
+
+@router.get("/engagement/threads/reply-jobs", response_model=list[ThreadsReplyJobOut])
+def admin_list_threads_reply_jobs(limit: int = 100, db: Session = Depends(get_db)):
+    jobs = list_threads_reply_jobs(db, limit=limit)
+    return [ThreadsReplyJobOut.model_validate(item) for item in jobs]
+
+
+@router.post("/engagement/threads/reply-jobs/{reply_job_id}/retry", response_model=ThreadsReplyJobOut)
+def admin_retry_threads_reply_job(reply_job_id: UUID, db: Session = Depends(get_db)):
+    try:
+        job = retry_threads_reply_job(db, reply_job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ThreadsReplyJobOut.model_validate(job)
+
+
+@router.post("/engagement/threads/process")
+def admin_process_threads_engagement(
+    limit_posts_per_account: int = 20,
+    limit_comments_per_post: int = 50,
+    limit_events: int = 100,
+    limit_jobs: int = 100,
+    db: Session = Depends(get_db),
+):
+    ingest_result = ingest_threads_comment_events_polling(
+        db,
+        limit_posts_per_account=limit_posts_per_account,
+        limit_comments_per_post=limit_comments_per_post,
+    )
+    queue_result = create_threads_reply_jobs_for_pending_events(db, limit=limit_events)
+    send_result = process_pending_threads_reply_jobs(db, limit=limit_jobs)
+    return {
+        "ingest_result": ingest_result,
+        "queue_result": queue_result,
+        "send_result": send_result,
+    }
 
 
 @router.post("/seeds/import", response_model=SeedImportResponse)

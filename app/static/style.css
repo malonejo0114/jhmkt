@@ -782,6 +782,7 @@ textarea {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .mono-kicker {
@@ -868,6 +869,7 @@ textarea {
   border-radius: 14px;
   padding: 14px;
   background: #fff;
+  overflow: hidden;
 }
 
 .mono-panel h3 {
@@ -887,6 +889,11 @@ textarea {
 }
 
 .mono-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
   border: 1.5px solid #000;
   border-radius: 10px;
   padding: 10px 14px;
@@ -894,6 +901,7 @@ textarea {
   cursor: pointer;
   background: #fff;
   color: #000;
+  text-align: center;
 }
 
 .mono-btn:disabled {
@@ -951,6 +959,10 @@ textarea {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.mono-form-inline > * {
+  min-width: 0;
+}
+
 .mono-details {
   margin-top: 10px;
 }
@@ -986,6 +998,9 @@ textarea {
   border: 1.5px solid #000;
   border-radius: 12px;
   padding: 12px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
 }
 
 .mono-account-card h4 {
@@ -993,8 +1008,29 @@ textarea {
 }
 
 .mono-account-card p {
-  margin: 6px 0;
+  margin: 0;
   font-size: 13px;
+}
+
+.mono-account-card .mono-actions {
+  margin-top: 4px;
+}
+
+.mono-account-card .mono-btn {
+  max-width: 100%;
+}
+
+.mono-divider {
+  border: 0;
+  border-top: 1px dashed #000;
+  margin: 10px 0;
+}
+
+.mono-submit-state {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ff0a9f;
 }
 
 .mono-empty {

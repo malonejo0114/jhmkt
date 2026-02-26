@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     disclosure_line: str = (
         "[광고] 이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다."
     )
-    saju_disclosure_line: str = Field(default="[안내] 사주/운세 정보 제공 콘텐츠입니다.")
+    saju_disclosure_line: str = Field(default="")
 
     cloud_tasks_enabled: bool = Field(default=False)
     cloud_tasks_project_id: str = Field(default="")

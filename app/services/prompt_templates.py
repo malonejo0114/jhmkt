@@ -22,6 +22,17 @@ def build_content_generation_prompt(
     hooks = hook_candidates or ["체크리스트", "문제해결", "비교"]
     tone_label = "존댓말" if tone_style == "FORMAL" else "반말"
     emoji_label = "허용" if emoji_mode == "ON" else "금지"
+    clean_disclosure = disclosure_line.strip()
+    disclosure_rule = (
+        f"1) threads_body 첫 줄은 아래 문구와 완전히 동일:\n        {clean_disclosure}"
+        if clean_disclosure
+        else "1) threads_body 첫 줄 고정 문구 제약 없음"
+    )
+    first_reply_rule = (
+        "4) threads_first_reply는 고지문 + 링크를 모두 포함"
+        if clean_disclosure
+        else "4) threads_first_reply는 링크를 포함"
+    )
 
     return dedent(
         f"""
@@ -44,11 +55,10 @@ def build_content_generation_prompt(
         }}
 
         하드 제약:
-        1) threads_body 첫 줄은 아래 문구와 완전히 동일:
-        {disclosure_line}
+        {disclosure_rule}
         2) threads_body 전체 길이 500자 이하
         3) threads_body 안에 "링크는 첫 댓글" 문구를 반드시 포함
-        4) threads_first_reply는 고지문 + 링크를 모두 포함
+        {first_reply_rule}
         5) instagram_caption은 "프로필 링크" 유도 문구를 포함
         6) slides는 4~7장, slide_no는 1부터 연속 증가
         7) 과장/의학적 단정 금지어 사용 금지: {", ".join(banned)}

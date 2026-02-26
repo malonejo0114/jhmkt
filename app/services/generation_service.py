@@ -524,20 +524,21 @@ def _adapt_payload_for_saju(
 ) -> dict[str, Any]:
     body = str(payload.get("threads_body", "")).strip()
     lines = [line.strip() for line in body.splitlines() if line.strip()]
-    if lines and lines[0] == disclosure_line:
+    if disclosure_line and lines and lines[0] == disclosure_line:
         lines = lines[1:]
     core = "\n".join(lines).strip()
     if "링크는 첫 댓글" not in core:
         core = f"{core}\n상담 링크는 첫 댓글에 남길게요.".strip()
-    payload["threads_body"] = f"{disclosure_line}\n{core}".strip()
+    payload["threads_body"] = f"{disclosure_line}\n{core}".strip() if disclosure_line else core
     payload["threads_first_reply"] = (
-        f"{disclosure_line}\n"
-        "사주 상담 신청: 댓글에 생년월일(양/음력), 태어난 시간, 성별을 남겨주세요."
+        f"{disclosure_line}\n사주 상담 신청: 댓글에 생년월일(양/음력), 태어난 시간, 성별을 남겨주세요.".strip()
+        if disclosure_line
+        else "사주 상담 신청: 댓글에 생년월일(양/음력), 태어난 시간, 성별을 남겨주세요."
     )
     payload["instagram_caption"] = (
-        f"{disclosure_line}\n"
-        f"{keyword} 사주 포인트를 카드뉴스로 정리했습니다.\n"
-        "상담이 필요하면 댓글에 '상담'이라고 남겨주세요."
+        f"{disclosure_line}\n{keyword} 사주 포인트를 카드뉴스로 정리했습니다.\n상담이 필요하면 댓글에 '상담'이라고 남겨주세요.".strip()
+        if disclosure_line
+        else f"{keyword} 사주 포인트를 카드뉴스로 정리했습니다.\n상담이 필요하면 댓글에 '상담'이라고 남겨주세요."
     )
     return payload
 
@@ -594,7 +595,7 @@ def generate_content_units_for_keywords(
     disclosure_line = (
         prompt_ctx.get("disclosure_line") or settings.disclosure_line
         if mode == "COUPANG"
-        else settings.saju_disclosure_line.strip() or "[안내] 사주/운세 정보 제공 콘텐츠입니다."
+        else settings.saju_disclosure_line.strip()
     )
     vertical_prompts = prompt_ctx.get("vertical_prompts") or _default_vertical_prompts()
     style_prompt = str(vertical_prompts.get(mode, "")).strip()
@@ -784,7 +785,7 @@ def create_instagram_content_unit_manual(
     disclosure_line = (
         prompt_ctx.get("disclosure_line") or settings.disclosure_line
         if mode == "COUPANG"
-        else settings.saju_disclosure_line.strip() or "[안내] 사주/운세 정보 제공 콘텐츠입니다."
+        else settings.saju_disclosure_line.strip()
     )
     style_prompt = str((prompt_ctx.get("vertical_prompts") or _default_vertical_prompts()).get(mode, "")).strip()
     if memo.strip():
@@ -826,7 +827,11 @@ def create_instagram_content_unit_manual(
 
     caption = str(payload.get("instagram_caption", "")).strip()
     if not caption:
-        caption = f"{disclosure_line}\n{clean_topic} 카드뉴스 요약입니다.\n프로필 링크에서 자세한 내용을 확인하세요."
+        caption = (
+            f"{disclosure_line}\n{clean_topic} 카드뉴스 요약입니다.\n프로필 링크에서 자세한 내용을 확인하세요.".strip()
+            if disclosure_line
+            else f"{clean_topic} 카드뉴스 요약입니다.\n프로필 링크에서 자세한 내용을 확인하세요."
+        )
     if "프로필 링크" not in caption:
         caption = f"{caption}\n프로필 링크에서 자세한 내용을 확인하세요."
 

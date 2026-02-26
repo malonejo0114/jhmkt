@@ -26,6 +26,10 @@
     {
       "path": "/cron/engagement/process",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/cron/engagement/threads/process",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

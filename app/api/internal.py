@@ -23,6 +23,11 @@ from app.services.job_execution_service import (
     execute_threads_insights_task,
 )
 from app.services.job_orchestrator import run_daily_bootstrap
+from app.services.threads_engagement_service import (
+    create_threads_reply_jobs_for_pending_events,
+    ingest_threads_comment_events_polling,
+    process_pending_threads_reply_jobs,
+)
 
 router = APIRouter(tags=["internal"], dependencies=[Depends(verify_internal_key)])
 
@@ -96,6 +101,56 @@ def cron_process_engagement(limit_events: int = 100, limit_jobs: int = 100, db: 
     queue_result = create_reply_jobs_for_pending_events(db, limit=limit_events)
     send_result = process_pending_reply_jobs(db, limit=limit_jobs)
     return {"status": "ok", "result": {"queue_result": queue_result, "send_result": send_result}}
+
+
+@router.post("/tasks/engagement/threads/process")
+def task_process_threads_engagement(
+    limit_posts_per_account: int = 20,
+    limit_comments_per_post: int = 50,
+    limit_events: int = 100,
+    limit_jobs: int = 100,
+    db: Session = Depends(get_db),
+):
+    ingest_result = ingest_threads_comment_events_polling(
+        db,
+        limit_posts_per_account=limit_posts_per_account,
+        limit_comments_per_post=limit_comments_per_post,
+    )
+    queue_result = create_threads_reply_jobs_for_pending_events(db, limit=limit_events)
+    send_result = process_pending_threads_reply_jobs(db, limit=limit_jobs)
+    return {
+        "status": "ok",
+        "result": {
+            "ingest_result": ingest_result,
+            "queue_result": queue_result,
+            "send_result": send_result,
+        },
+    }
+
+
+@router.api_route("/cron/engagement/threads/process", methods=["GET", "POST"])
+def cron_process_threads_engagement(
+    limit_posts_per_account: int = 20,
+    limit_comments_per_post: int = 50,
+    limit_events: int = 100,
+    limit_jobs: int = 100,
+    db: Session = Depends(get_db),
+):
+    ingest_result = ingest_threads_comment_events_polling(
+        db,
+        limit_posts_per_account=limit_posts_per_account,
+        limit_comments_per_post=limit_comments_per_post,
+    )
+    queue_result = create_threads_reply_jobs_for_pending_events(db, limit=limit_events)
+    send_result = process_pending_threads_reply_jobs(db, limit=limit_jobs)
+    return {
+        "status": "ok",
+        "result": {
+            "ingest_result": ingest_result,
+            "queue_result": queue_result,
+            "send_result": send_result,
+        },
+    }
 
 
 @router.api_route("/cron/dispatch/due", methods=["GET", "POST"])

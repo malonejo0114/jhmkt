@@ -259,6 +259,54 @@ class ReplyJob(Base, TimestampMixin):
     last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class ThreadsCommentEvent(Base, TimestampMixin):
+    __tablename__ = "threads_comment_event"
+    __table_args__ = (
+        UniqueConstraint("event_hash", name="uq_threads_comment_event_hash"),
+        UniqueConstraint("threads_account_id", "external_reply_id", name="uq_threads_comment_event_reply"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    threads_account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("threads_account.id"), nullable=False
+    )
+    external_reply_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    external_media_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_parent_reply_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_from_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    external_from_username: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reply_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    reply_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[CommentEventStatus] = mapped_column(
+        Enum(CommentEventStatus, name="comment_event_status"), nullable=False, default=CommentEventStatus.PENDING
+    )
+    status_reason: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    event_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+
+class ThreadsReplyJob(Base, TimestampMixin):
+    __tablename__ = "threads_reply_job"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_threads_reply_job_idempotency"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    comment_event_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("threads_comment_event.id"), nullable=False)
+    threads_account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("threads_account.id"), nullable=False)
+    reply_text: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[ReplyJobStatus] = mapped_column(
+        Enum(ReplyJobStatus, name="reply_job_status"), nullable=False, default=ReplyJobStatus.PENDING
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    external_reply_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    skip_reason: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
 class QuotaBucket(Base):
     __tablename__ = "quota_bucket"
     __table_args__ = (

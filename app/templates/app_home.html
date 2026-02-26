@@ -73,11 +73,13 @@
           <h4>{{ acc.name }}</h4>
           <p>ID: {{ acc.threads_user_id }}</p>
           <p>검수대기: {{ pending_by_threads.get(acc.id, 0) }}건</p>
-          {% if instagram_accounts %}
-          <a class="mono-btn mono-btn-black" href="/app/accounts/{{ acc.id }}?ig_account_id={{ instagram_accounts[0].id }}">작업실 열기</a>
-          {% else %}
-          <a class="mono-btn mono-btn-black" href="/app/accounts/{{ acc.id }}">작업실 열기(Threads 전용)</a>
-          {% endif %}
+          <div class="mono-actions">
+            {% if instagram_accounts %}
+            <a class="mono-btn mono-btn-black" href="/app/accounts/{{ acc.id }}?ig_account_id={{ instagram_accounts[0].id }}">작업실 열기</a>
+            {% else %}
+            <a class="mono-btn mono-btn-black" href="/app/accounts/{{ acc.id }}">작업실 열기(Threads 전용)</a>
+            {% endif %}
+          </div>
         </article>
         {% else %}
         <p class="mono-empty">연결된 Threads 계정이 없습니다. 위에서 먼저 연동하세요.</p>

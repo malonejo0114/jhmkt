@@ -39,6 +39,60 @@ def _save_to_gcs(content_unit_id: str, slide_no: int, image_bytes: bytes) -> str
     return f"gs://{settings.gcs_bucket}/{object_name}"
 
 
+def save_uploaded_file(
+    folder_id: str,
+    file_name: str,
+    file_bytes: bytes,
+    *,
+    content_type: str | None = None,
+) -> str:
+    settings = get_settings()
+    safe_folder = folder_id.strip()
+    safe_name = file_name.strip()
+    if not safe_folder or not safe_name:
+        raise ValueError("folder_id/file_name 이 필요합니다.")
+
+    if settings.storage_mode == "gcs":
+        return _save_uploaded_to_gcs(
+            folder_id=safe_folder,
+            file_name=safe_name,
+            file_bytes=file_bytes,
+            content_type=content_type,
+        )
+    return _save_uploaded_to_local(folder_id=safe_folder, file_name=safe_name, file_bytes=file_bytes)
+
+
+def _save_uploaded_to_local(*, folder_id: str, file_name: str, file_bytes: bytes) -> str:
+    settings = get_settings()
+    root = Path(settings.local_asset_dir).expanduser().resolve()
+    target_dir = root / folder_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    file_path = target_dir / file_name
+    file_path.write_bytes(file_bytes)
+    return str(file_path)
+
+
+def _save_uploaded_to_gcs(
+    *,
+    folder_id: str,
+    file_name: str,
+    file_bytes: bytes,
+    content_type: str | None = None,
+) -> str:
+    settings = get_settings()
+    if not settings.gcs_bucket:
+        raise ValueError("storage_mode=gcs 인 경우 gcs_bucket 설정이 필요합니다.")
+
+    from google.cloud import storage
+
+    client = storage.Client()
+    bucket = client.bucket(settings.gcs_bucket)
+    object_name = f"uploads/{folder_id}/{file_name}"
+    blob = bucket.blob(object_name)
+    blob.upload_from_string(file_bytes, content_type=content_type or "application/octet-stream")
+    return f"gs://{settings.gcs_bucket}/{object_name}"
+
+
 def asset_public_url(uri: str) -> str:
     if uri.startswith("http://") or uri.startswith("https://"):
         return uri

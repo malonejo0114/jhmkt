@@ -22,6 +22,13 @@ class ThreadsPublishResult:
 
 
 @dataclass
+class ThreadsManualPublishResult:
+    post_id: str
+    permalink: str
+    reply_post_id: str | None
+
+
+@dataclass
 class InstagramPublishResult:
     child_container_ids: list[str]
     carousel_creation_id: str
@@ -45,6 +52,18 @@ class ThreadsInsightResult:
     reposts: int
     quotes: int
     shares: int
+    raw_payload: dict[str, Any]
+
+
+@dataclass
+class ThreadsCommentResult:
+    reply_id: str
+    media_id: str
+    parent_reply_id: str | None
+    text: str
+    from_id: str | None
+    username: str | None
+    created_at: datetime | None
     raw_payload: dict[str, Any]
 
 
@@ -136,6 +155,187 @@ def publish_threads(
         root_post_id=root_post_id,
         reply_post_id=reply_post_id,
         permalink=f"https://www.threads.net/t/{root_post_id}",
+    )
+
+
+def _parse_threads_ts(raw: Any) -> datetime | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def list_threads_comments(
+    *,
+    account: ThreadsAccount,
+    media_id: str,
+    limit: int = 50,
+) -> list[ThreadsCommentResult]:
+    settings = get_settings()
+    fetch_limit = max(1, min(limit, 100))
+
+    if settings.run_mode == "mock":
+        return []
+
+    token = _extract_token(account)
+    base = f"{settings.threads_api_base_url.rstrip('/')}/{settings.threads_api_version}"
+    data = request_json(
+        "GET",
+        f"{base}/{media_id}/replies",
+        params={
+            "fields": "id,text,username,timestamp,reply_to_id,media,from",
+            "limit": fetch_limit,
+            "access_token": token,
+        },
+    )
+
+    items = data.get("data", []) if isinstance(data.get("data"), list) else []
+    parsed: list[ThreadsCommentResult] = []
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        reply_id = str(raw.get("id") or "").strip()
+        if not reply_id:
+            continue
+        media_obj = raw.get("media") if isinstance(raw.get("media"), dict) else {}
+        from_obj = raw.get("from") if isinstance(raw.get("from"), dict) else {}
+        parsed.append(
+            ThreadsCommentResult(
+                reply_id=reply_id,
+                media_id=str(raw.get("media_id") or media_obj.get("id") or media_id).strip(),
+                parent_reply_id=str(raw.get("reply_to_id") or "").strip() or None,
+                text=str(raw.get("text") or "").strip(),
+                from_id=str(raw.get("from_id") or from_obj.get("id") or "").strip() or None,
+                username=str(raw.get("username") or from_obj.get("username") or "").strip() or None,
+                created_at=_parse_threads_ts(raw.get("timestamp") or raw.get("created_time")),
+                raw_payload=raw,
+            )
+        )
+    return parsed
+
+
+def send_threads_comment_reply(
+    *,
+    account: ThreadsAccount,
+    reply_to_id: str,
+    message: str,
+) -> str:
+    settings = get_settings()
+
+    if settings.run_mode == "mock":
+        seed = f"{account.id}|{reply_to_id}|{message}|{datetime.now(timezone.utc).isoformat()}"
+        return _mock_id("thr_comment_reply", seed)
+
+    token = _extract_token(account)
+    base = f"{settings.threads_api_base_url.rstrip('/')}/{settings.threads_api_version}"
+
+    create_reply = request_json(
+        "POST",
+        f"{base}/{account.threads_user_id}/threads",
+        params={
+            "text": message,
+            "media_type": "TEXT",
+            "reply_to_id": reply_to_id,
+            "access_token": token,
+        },
+    )
+    creation_id = str(create_reply.get("id") or create_reply.get("creation_id") or "").strip()
+    if not creation_id:
+        raise PermanentPublishError("threads comment reply creation_id 누락", code="THREADS_COMMENT_REPLY_CREATE_INVALID")
+
+    publish_reply = request_json(
+        "POST",
+        f"{base}/{account.threads_user_id}/threads_publish",
+        params={
+            "creation_id": creation_id,
+            "access_token": token,
+        },
+    )
+    reply_post_id = str(publish_reply.get("id") or "").strip()
+    if not reply_post_id:
+        raise PermanentPublishError("threads comment reply publish id 누락", code="THREADS_COMMENT_REPLY_PUBLISH_INVALID")
+    return reply_post_id
+
+
+def publish_threads_manual_post(
+    *,
+    account: ThreadsAccount,
+    text: str,
+    reply_text: str = "",
+    image_url: str | None = None,
+) -> ThreadsManualPublishResult:
+    settings = get_settings()
+    clean_text = text.strip()
+    clean_reply = reply_text.strip()
+    clean_image_url = (image_url or "").strip() or None
+
+    if not clean_text:
+        raise ValueError("게시 본문을 입력해주세요.")
+
+    if settings.run_mode == "mock":
+        seed = f"{account.id}|{clean_text}|{clean_reply}|{clean_image_url}|{datetime.now(timezone.utc).isoformat()}"
+        post_id = _mock_id("thr_manual", seed)
+        reply_id = _mock_id("thr_manual_reply", seed) if clean_reply else None
+        return ThreadsManualPublishResult(
+            post_id=post_id,
+            permalink=f"https://www.threads.net/t/{post_id}",
+            reply_post_id=reply_id,
+        )
+
+    token = _extract_token(account)
+    base = f"{settings.threads_api_base_url.rstrip('/')}/{settings.threads_api_version}"
+
+    create_params: dict[str, str] = {
+        "text": clean_text,
+        "access_token": token,
+    }
+    if clean_image_url:
+        create_params["media_type"] = "IMAGE"
+        create_params["image_url"] = clean_image_url
+    else:
+        create_params["media_type"] = "TEXT"
+
+    created = request_json(
+        "POST",
+        f"{base}/{account.threads_user_id}/threads",
+        params=create_params,
+    )
+    creation_id = str(created.get("id") or created.get("creation_id") or "").strip()
+    if not creation_id:
+        raise PermanentPublishError("threads manual creation_id 누락", code="THREADS_MANUAL_CREATE_INVALID")
+
+    published = request_json(
+        "POST",
+        f"{base}/{account.threads_user_id}/threads_publish",
+        params={
+            "creation_id": creation_id,
+            "access_token": token,
+        },
+    )
+    post_id = str(published.get("id") or "").strip()
+    if not post_id:
+        raise PermanentPublishError("threads manual publish id 누락", code="THREADS_MANUAL_PUBLISH_INVALID")
+
+    reply_post_id: str | None = None
+    if clean_reply:
+        reply_post_id = send_threads_comment_reply(
+            account=account,
+            reply_to_id=post_id,
+            message=clean_reply,
+        )
+
+    return ThreadsManualPublishResult(
+        post_id=post_id,
+        permalink=f"https://www.threads.net/t/{post_id}",
+        reply_post_id=reply_post_id,
     )
 
 

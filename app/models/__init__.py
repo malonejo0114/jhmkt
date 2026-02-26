@@ -31,8 +31,10 @@ from app.models.schema import (
     SourceType,
     TrendKeywordSnapshot,
     ThreadsAccount,
+    ThreadsCommentEvent,
     ThreadsInsight,
     ThreadsPost,
+    ThreadsReplyJob,
 )
 
 __all__ = [
@@ -68,6 +70,8 @@ __all__ = [
     "SourceType",
     "TrendKeywordSnapshot",
     "ThreadsAccount",
+    "ThreadsCommentEvent",
     "ThreadsInsight",
     "ThreadsPost",
+    "ThreadsReplyJob",
 ]

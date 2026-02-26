@@ -377,6 +377,9 @@
     <section class="mono-grid two">
       <article class="mono-panel">
         <h3>7) 스레드 댓글 자동답글</h3>
+        {% if not threads_engagement_available %}
+        <p class="mono-empty">{{ threads_engagement_error or '스레드 댓글 기능을 불러오지 못했습니다.' }}</p>
+        {% else %}
         <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comments/process" class="mono-form js-single-submit">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />
@@ -414,6 +417,7 @@
           {% endfor %}
           </tbody>
         </table>
+        {% endif %}
       </article>
 
       <article class="mono-panel">

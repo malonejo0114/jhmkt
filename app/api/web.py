@@ -4,6 +4,7 @@ import json
 import mimetypes
 from datetime import date
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote_plus, urlencode
 from uuid import UUID
 from uuid import uuid4
@@ -454,29 +455,41 @@ def app_account_workspace(
                 }
             )
 
-    recent_threads_comment_events = [
-        item for item in list_threads_comment_events(db, limit=100) if item.threads_account_id == threads_account.id
-    ][:20]
-    recent_threads_reply_jobs = [
-        item for item in list_threads_reply_jobs(db, limit=100) if item.threads_account_id == threads_account.id
-    ][:20]
+    recent_threads_comment_events: list[Any] = []
+    recent_threads_reply_jobs: list[Any] = []
     recent_threads_qa_rows: list[dict[str, str | None]] = []
-    if recent_threads_comment_events:
-        threads_reply_by_event = {job.comment_event_id: job for job in recent_threads_reply_jobs}
-        for event in recent_threads_comment_events:
-            matched = threads_reply_by_event.get(event.id)
-            recent_threads_qa_rows.append(
-                {
-                    "question": event.reply_text or "",
-                    "answer": (matched.reply_text if matched else "-") or "-",
-                    "status": (matched.status.value if matched else event.status.value),
-                    "created_at": (
-                        matched.created_at.isoformat()
-                        if matched and matched.created_at
-                        else (event.created_at.isoformat() if event.created_at else "")
-                    ),
-                }
-            )
+    threads_engagement_available = True
+    threads_engagement_error = ""
+    try:
+        recent_threads_comment_events = [
+            item
+            for item in list_threads_comment_events(db, limit=100)
+            if item.threads_account_id == threads_account.id
+        ][:20]
+        recent_threads_reply_jobs = [
+            item
+            for item in list_threads_reply_jobs(db, limit=100)
+            if item.threads_account_id == threads_account.id
+        ][:20]
+        if recent_threads_comment_events:
+            threads_reply_by_event = {job.comment_event_id: job for job in recent_threads_reply_jobs}
+            for event in recent_threads_comment_events:
+                matched = threads_reply_by_event.get(event.id)
+                recent_threads_qa_rows.append(
+                    {
+                        "question": event.reply_text or "",
+                        "answer": (matched.reply_text if matched else "-") or "-",
+                        "status": (matched.status.value if matched else event.status.value),
+                        "created_at": (
+                            matched.created_at.isoformat()
+                            if matched and matched.created_at
+                            else (event.created_at.isoformat() if event.created_at else "")
+                        ),
+                    }
+                )
+    except Exception:  # noqa: BLE001
+        threads_engagement_available = False
+        threads_engagement_error = "스레드 댓글 기능 초기화가 필요합니다. DB 마이그레이션 후 사용하세요."
     prompt_settings = get_vertical_prompt_settings(db)
 
     return templates.TemplateResponse(
@@ -503,6 +516,8 @@ def app_account_workspace(
             "recent_threads_comment_events": recent_threads_comment_events,
             "recent_threads_reply_jobs": recent_threads_reply_jobs,
             "recent_threads_qa_rows": recent_threads_qa_rows,
+            "threads_engagement_available": threads_engagement_available,
+            "threads_engagement_error": threads_engagement_error,
             "preview_map": preview_map,
             "brand_profiles": brand_profiles,
             "prompt_settings": prompt_settings,

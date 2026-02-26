@@ -502,7 +502,13 @@ def app_account_workspace(
     except Exception:  # noqa: BLE001
         threads_engagement_available = False
         threads_engagement_error = "스레드 댓글 기능 초기화가 필요합니다. DB 마이그레이션 후 사용하세요."
-    prompt_settings = get_vertical_prompt_settings(db)
+    try:
+        prompt_settings = get_vertical_prompt_settings(db)
+    except Exception:  # noqa: BLE001
+        prompt_settings = {
+            "COUPANG": "",
+            "SAJU": "",
+        }
 
     return templates.TemplateResponse(
         request,

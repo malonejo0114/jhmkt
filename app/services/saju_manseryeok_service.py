@@ -214,7 +214,34 @@ LUNAR_DATA = [
     0x0D520,
 ]
 
-SOLAR_TERM_BASE = [
+SOLAR_TERM_C_20TH = [
+    6.11,
+    20.84,
+    4.6295,
+    19.4599,
+    6.3826,
+    21.4155,
+    5.59,
+    20.888,
+    6.318,
+    21.86,
+    6.5,
+    22.2,
+    7.928,
+    23.65,
+    8.35,
+    23.95,
+    8.44,
+    23.822,
+    9.098,
+    24.218,
+    8.218,
+    23.08,
+    7.9,
+    22.6,
+]
+
+SOLAR_TERM_C_21ST = [
     5.4055,
     20.12,
     3.87,
@@ -240,6 +267,8 @@ SOLAR_TERM_BASE = [
     7.18,
     21.94,
 ]
+
+SOLAR_TERM_YEAR_DELTA: dict[int, dict[int, int]] = {}
 
 MONTH_BRANCHES = {
     1: "인",
@@ -507,14 +536,17 @@ def lunar_to_solar(year: int, month: int, day: int, is_leap_month: bool) -> tupl
 
 
 def _get_solar_term_date(year: int, term_index: int) -> date:
-    century = year // 100
+    if year < 1901 or year > 2100:
+        raise ValueError("절기 계산 지원 범위는 1901~2100년입니다.")
+
     year_in_century = year % 100
-    term_coeff = 0.2422
-    leap_adjust = (year_in_century // 4) - (century // 4)
-    day = int(SOLAR_TERM_BASE[term_index] + term_coeff * year_in_century + leap_adjust)
+    coeffs = SOLAR_TERM_C_20TH if year <= 2000 else SOLAR_TERM_C_21ST
+    coeff = coeffs[term_index]
+    # 통상절기 계산식: floor(y*0.2422 + C) - floor((y-1)/4)
+    day = int(year_in_century * 0.2422 + coeff) - int((year_in_century - 1) / 4)
+    day += SOLAR_TERM_YEAR_DELTA.get(term_index, {}).get(year, 0)
     month = term_index // 2 + 1
-    # JS Date(year, month, day) 동작과 동일하게 범위 밖 day를 자동 보정한다.
-    return date(year, month, 1) + timedelta(days=day - 1)
+    return date(year, month, max(1, day))
 
 
 def _get_year_pillar(year: int) -> tuple[str, str]:
@@ -526,11 +558,17 @@ def _get_month_pillar(year: int, month: int, day: int) -> tuple[str, str]:
     lichun = _get_solar_term_date(year, 2)
     adjusted_year = year - 1 if current < lichun else year
 
-    solar_term_month = 0
-    for i in range(0, 24, 2):
-        term_date = _get_solar_term_date(adjusted_year, i)
-        if current >= term_date:
-            solar_term_month = i // 2 + 1
+    month_starts: list[tuple[int, date]] = []
+    for month_no in range(1, 12):
+        term_index = month_no * 2
+        month_starts.append((month_no, _get_solar_term_date(adjusted_year, term_index)))
+    # 12월(축월)은 다음 해 소한부터 시작
+    month_starts.append((12, _get_solar_term_date(adjusted_year + 1, 0)))
+
+    solar_term_month = 11  # 입춘 이전 구간의 기본값: 자월
+    for month_no, start_date in month_starts:
+        if current >= start_date:
+            solar_term_month = month_no
         else:
             break
 

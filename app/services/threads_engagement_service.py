@@ -196,6 +196,7 @@ def ingest_threads_comment_events_polling(
 
     created = 0
     poll_errors = 0
+    poll_error_samples: list[str] = []
     scanned_posts = 0
     scanned_comments = 0
     skipped_duplicate = 0
@@ -218,79 +219,88 @@ def ingest_threads_comment_events_polling(
             root_post_id = str(post.root_post_id or "").strip()
             if not root_post_id:
                 continue
-            try:
-                comments = list_threads_comments(
-                    db=db,
-                    account=account,
-                    media_id=root_post_id,
-                    limit=comment_limit,
-                )
-            except Exception:  # noqa: BLE001
-                poll_errors += 1
-                continue
+            poll_targets = [root_post_id]
+            first_reply_id = str(post.first_reply_id or "").strip()
+            if first_reply_id and first_reply_id not in poll_targets:
+                poll_targets.append(first_reply_id)
 
-            scanned_posts += 1
-            scanned_comments += len(comments)
-
-            for item in comments:
-                if not item.reply_id:
-                    continue
-                if item.parent_reply_id and item.parent_reply_id != root_post_id:
-                    continue
-                canonical = {
-                    "reply_id": item.reply_id,
-                    "text": item.text,
-                    "created_at": item.created_at.isoformat() if item.created_at else None,
-                    "from_id": item.from_id,
-                }
-                ev_hash = _threads_event_hash(
-                    threads_account_id=account.id,
-                    root_post_id=root_post_id,
-                    item=canonical,
-                )
-                exists = (
-                    db.execute(select(ThreadsCommentEvent).where(ThreadsCommentEvent.event_hash == ev_hash))
-                    .scalars()
-                    .first()
-                )
-                if exists:
-                    skipped_duplicate += 1
+            for media_id in poll_targets:
+                try:
+                    comments = list_threads_comments(
+                        db=db,
+                        account=account,
+                        media_id=media_id,
+                        limit=comment_limit,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    poll_errors += 1
+                    if len(poll_error_samples) < 3:
+                        poll_error_samples.append(
+                            f"{account.name}:{media_id}:{str(exc)[:100]}"
+                        )
                     continue
 
-                exists_by_reply = (
-                    db.execute(
-                        select(ThreadsCommentEvent).where(
-                            ThreadsCommentEvent.threads_account_id == account.id,
-                            ThreadsCommentEvent.external_reply_id == item.reply_id,
+                scanned_posts += 1
+                scanned_comments += len(comments)
+
+                for item in comments:
+                    if not item.reply_id:
+                        continue
+                    canonical = {
+                        "reply_id": item.reply_id,
+                        "text": item.text,
+                        "created_at": item.created_at.isoformat() if item.created_at else None,
+                        "from_id": item.from_id,
+                    }
+                    ev_hash = _threads_event_hash(
+                        threads_account_id=account.id,
+                        root_post_id=root_post_id,
+                        item=canonical,
+                    )
+                    exists = (
+                        db.execute(select(ThreadsCommentEvent).where(ThreadsCommentEvent.event_hash == ev_hash))
+                        .scalars()
+                        .first()
+                    )
+                    if exists:
+                        skipped_duplicate += 1
+                        continue
+
+                    exists_by_reply = (
+                        db.execute(
+                            select(ThreadsCommentEvent).where(
+                                ThreadsCommentEvent.threads_account_id == account.id,
+                                ThreadsCommentEvent.external_reply_id == item.reply_id,
+                            )
+                        )
+                        .scalars()
+                        .first()
+                    )
+                    if exists_by_reply:
+                        skipped_duplicate += 1
+                        continue
+
+                    db.add(
+                        ThreadsCommentEvent(
+                            threads_account_id=account.id,
+                            external_reply_id=item.reply_id,
+                            external_media_id=item.media_id or media_id,
+                            external_parent_reply_id=item.parent_reply_id,
+                            external_from_id=item.from_id,
+                            external_from_username=item.username,
+                            reply_text=item.text or "",
+                            reply_created_at=item.created_at,
+                            status=CommentEventStatus.PENDING,
+                            status_reason=None,
+                            event_hash=ev_hash,
+                            raw_payload={
+                                "root_post_id": root_post_id,
+                                "poll_media_id": media_id,
+                                "reply": item.raw_payload,
+                            },
                         )
                     )
-                    .scalars()
-                    .first()
-                )
-                if exists_by_reply:
-                    skipped_duplicate += 1
-                    continue
-
-                db.add(
-                    ThreadsCommentEvent(
-                        threads_account_id=account.id,
-                        external_reply_id=item.reply_id,
-                        external_media_id=item.media_id or root_post_id,
-                        external_parent_reply_id=item.parent_reply_id,
-                        external_from_id=item.from_id,
-                        external_from_username=item.username,
-                        reply_text=item.text or "",
-                        reply_created_at=item.created_at,
-                        status=CommentEventStatus.PENDING,
-                        status_reason=None,
-                        event_hash=ev_hash,
-                        raw_payload={
-                            "root_post_id": root_post_id,
-                            "reply": item.raw_payload,
-                        },
-                    )
-                )
-                created += 1
+                    created += 1
 
     db.commit()
     return {
@@ -301,6 +311,7 @@ def ingest_threads_comment_events_polling(
         "created_events": created,
         "skipped_duplicate": skipped_duplicate,
         "poll_errors": poll_errors,
+        "poll_error_samples": poll_error_samples,
     }
 
 

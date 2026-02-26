@@ -1455,6 +1455,10 @@ def web_process_threads_comments(
             f"|sent={send_result.get('sent', 0)}"
             f"|failed={send_result.get('failed', 0)}"
         )
+        if int(ingest_result.get("poll_errors", 0) or 0) > 0:
+            samples = ingest_result.get("poll_error_samples") if isinstance(ingest_result.get("poll_error_samples"), list) else []
+            if samples:
+                flash += f"|err={str(samples[0])[:80]}"
     except Exception as exc:  # noqa: BLE001
         flash = f"스레드댓글처리실패:{_short_error_message(exc)}"
 

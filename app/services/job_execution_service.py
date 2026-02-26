@@ -107,8 +107,13 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
         root_text = _strip_exact_line(root_text, disclosure_line)
         reply_text = _ensure_first_line(reply_text, disclosure_line)
     now_utc = datetime.now(timezone.utc)
+    existing_root_text = (existing.root_text if existing else "").strip()
+    existing_reply_text = (existing.reply_text if existing and existing.reply_text else "").strip()
+    copy_changed = bool(existing) and (
+        existing_root_text != root_text or existing_reply_text != raw_reply_text.strip()
+    )
 
-    if existing and existing.root_post_id and existing.first_reply_id:
+    if existing and existing.root_post_id and existing.first_reply_id and not copy_changed:
         return {
             "root_post_id": existing.root_post_id,
             "reply_post_id": existing.first_reply_id,
@@ -117,7 +122,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             "extra_reply_count": 0,
         }
 
-    if existing and existing.root_post_id and not existing.first_reply_id:
+    if existing and existing.root_post_id and not existing.first_reply_id and not copy_changed:
         if not reply_text:
             return {
                 "root_post_id": existing.root_post_id,
@@ -155,7 +160,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             }
         raise TransientPublishError("threads first reply pending", code="THREADS_REPLY_PENDING")
 
-    should_enqueue_insights = not (existing and existing.root_post_id)
+    should_enqueue_insights = (not (existing and existing.root_post_id)) or copy_changed
     result = publish_threads(
         db=db,
         account=account,

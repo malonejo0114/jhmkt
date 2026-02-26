@@ -274,6 +274,9 @@ SHICHEN_HOUR_MAP = {
 DATE_RE = re.compile(
     r"(?P<year>(?:19|20)\d{2})\s*[./\-년]\s*(?P<month>1[0-2]|0?[1-9])\s*[./\-월]\s*(?P<day>3[01]|[12]\d|0?[1-9])\s*일?"
 )
+SHORT_YEAR_DATE_RE = re.compile(
+    r"(?<!\d)(?:['’])?(?P<year>\d{2})\s*년\s*(?P<month>1[0-2]|0?[1-9])\s*[./\-월]\s*(?P<day>3[01]|[12]\d|0?[1-9])\s*일?"
+)
 COMPACT_DATE_RE = re.compile(r"\b(?P<year>(?:19|20)\d{2})(?P<month>0[1-9]|1[0-2])(?P<day>0[1-9]|[12]\d|3[01])\b")
 MONTH_DAY_RE = re.compile(r"(?P<month>1[0-2]|0?[1-9])\s*월\s*(?P<day>3[01]|[12]\d|0?[1-9])\s*일")
 MERIDIEM_HOUR_RE = re.compile(
@@ -344,6 +347,12 @@ class SajuReplyContext:
     birth_summary: str
     four_pillars: FourPillarsResult | None
     error_message: str | None
+
+
+def _expand_two_digit_year(year_2d: int) -> int:
+    if year_2d < 0 or year_2d > 99:
+        raise ValueError("2자리 연도 범위를 벗어났습니다.")
+    return 2000 + year_2d if year_2d <= 30 else 1900 + year_2d
 
 
 def _get_leap_month(year: int) -> int:
@@ -517,10 +526,16 @@ def _extract_birth_from_text(text: str) -> BirthInfoPartial:
         info.month = int(full_date.group("month"))
         info.day = int(full_date.group("day"))
     else:
-        month_day = MONTH_DAY_RE.search(raw)
-        if month_day:
-            info.month = int(month_day.group("month"))
-            info.day = int(month_day.group("day"))
+        short_year_date = SHORT_YEAR_DATE_RE.search(raw)
+        if short_year_date:
+            info.year = _expand_two_digit_year(int(short_year_date.group("year")))
+            info.month = int(short_year_date.group("month"))
+            info.day = int(short_year_date.group("day"))
+        else:
+            month_day = MONTH_DAY_RE.search(raw)
+            if month_day:
+                info.month = int(month_day.group("month"))
+                info.day = int(month_day.group("day"))
 
     meridiem_hour = MERIDIEM_HOUR_RE.search(raw)
     if meridiem_hour:
@@ -574,6 +589,7 @@ def _merge_birth(base: BirthInfoPartial, incoming: BirthInfoPartial) -> BirthInf
 def _clean_question_text(text: str) -> str:
     cleaned = text
     cleaned = DATE_RE.sub(" ", cleaned)
+    cleaned = SHORT_YEAR_DATE_RE.sub(" ", cleaned)
     cleaned = COMPACT_DATE_RE.sub(" ", cleaned)
     cleaned = MONTH_DAY_RE.sub(" ", cleaned)
     cleaned = MERIDIEM_HOUR_RE.sub(" ", cleaned)
@@ -611,6 +627,41 @@ def _missing_fields(info: BirthInfoPartial) -> list[str]:
     if info.hour is None:
         missing.append("생시")
     return missing
+
+
+def infer_saju_topic(question: str) -> str:
+    text = question.replace(" ", "")
+    if any(token in text for token in ("연애", "사랑", "결혼", "이별", "재회", "썸")):
+        return "연애운"
+    if any(token in text for token in ("금전", "재물", "돈", "투자", "수입", "지출")):
+        return "금전운"
+    if any(token in text for token in ("직장", "취업", "이직", "사업", "승진", "커리어")):
+        return "직업운"
+    if any(token in text for token in ("건강", "몸", "컨디션", "병원", "질병")):
+        return "건강운"
+    if any(token in text for token in ("학업", "시험", "공부", "입시")):
+        return "학업운"
+    return "종합운"
+
+
+def build_saju_topic_fallback(topic: str, pillars_kor: str) -> str:
+    by_topic = {
+        "연애운": f"{pillars_kor} 기준 연애운은 서두르기보다 대화 속도를 맞추는 쪽이 유리합니다.",
+        "금전운": f"{pillars_kor} 기준 금전운은 큰 베팅보다 지출 통제와 분산이 더 유리합니다.",
+        "직업운": f"{pillars_kor} 기준 직업운은 방향 전환보다 현재 루틴 고도화가 성과에 유리합니다.",
+        "건강운": f"{pillars_kor} 기준 건강운은 무리한 강도보다 수면·회복 리듬 관리가 더 중요합니다.",
+        "학업운": f"{pillars_kor} 기준 학업운은 과목 확장보다 약점 한 과목 집중 보완이 유리합니다.",
+        "종합운": f"{pillars_kor} 기준 종합운은 급한 결정 대신 순서 정리 후 실행하는 흐름이 유리합니다.",
+    }
+    return by_topic.get(topic, by_topic["종합운"])
+
+
+def summarize_birth_info(info: BirthInfoPartial) -> str:
+    return _birth_summary(info)
+
+
+def list_missing_birth_fields(info: BirthInfoPartial) -> list[str]:
+    return _missing_fields(info)
 
 
 def build_saju_reply_context(current_text: str, history_texts: list[str]) -> SajuReplyContext:

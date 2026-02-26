@@ -90,6 +90,14 @@ from app.services.asset_storage import asset_public_url
 from app.services.asset_storage import save_uploaded_file
 from app.services.publisher_service import publish_threads_manual_post
 from app.services.setup_service import get_setup_summary
+from app.services.saju_manseryeok_service import (
+    BirthInfoPartial,
+    build_saju_topic_fallback,
+    calculate_four_pillars,
+    infer_saju_topic,
+    list_missing_birth_fields,
+    summarize_birth_info,
+)
 from app.services.time_utils import kst_today
 from app.services.threads_engagement_service import (
     create_threads_reply_jobs_for_pending_events,
@@ -174,6 +182,22 @@ def _to_absolute_public_url(path_or_url: str) -> str:
     if value.startswith("/"):
         return f"{base}{value}"
     return f"{base}/{value}"
+
+
+def _optional_int(value: str | None) -> int | None:
+    if value is None:
+        return None
+    raw = value.strip()
+    if raw == "":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _flag(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "on", "yes", "y"}
 
 
 @router.get("/")
@@ -292,6 +316,15 @@ def app_account_workspace(
     ig_account_id: UUID | None = None,
     biz_date: date | None = None,
     flash: str | None = None,
+    saju_run: str | None = None,
+    saju_year: str | None = None,
+    saju_month: str | None = None,
+    saju_day: str | None = None,
+    saju_hour: str | None = None,
+    saju_minute: str | None = None,
+    saju_calendar: str | None = None,
+    saju_leap_month: str | None = None,
+    saju_question: str | None = None,
 ):
     maybe_user = _require_user_or_redirect(request, db)
     if isinstance(maybe_user, RedirectResponse):
@@ -510,6 +543,46 @@ def app_account_workspace(
             "SAJU": "",
         }
 
+    saju_form = {
+        "year": (saju_year or "").strip(),
+        "month": (saju_month or "").strip(),
+        "day": (saju_day or "").strip(),
+        "hour": (saju_hour or "").strip(),
+        "minute": (saju_minute or "").strip(),
+        "calendar": "lunar" if (saju_calendar or "").strip().lower() == "lunar" else "solar",
+        "leap_month": _flag(saju_leap_month),
+        "question": (saju_question or "").strip(),
+    }
+    saju_preview: dict[str, Any] | None = None
+    saju_preview_error = ""
+    if saju_run is not None:
+        birth = BirthInfoPartial(
+            year=_optional_int(saju_form["year"]),
+            month=_optional_int(saju_form["month"]),
+            day=_optional_int(saju_form["day"]),
+            hour=_optional_int(saju_form["hour"]),
+            minute=_optional_int(saju_form["minute"]) or 0,
+            is_lunar=saju_form["calendar"] == "lunar",
+            is_leap_month=saju_form["leap_month"],
+        )
+        missing = list_missing_birth_fields(birth)
+        if missing:
+            saju_preview_error = f"{', '.join(missing)} 입력이 필요합니다."
+        else:
+            try:
+                pillars = calculate_four_pillars(birth)
+                topic = infer_saju_topic(saju_form["question"])
+                one_line = build_saju_topic_fallback(topic, pillars.korean_string())
+                saju_preview = {
+                    "topic": topic,
+                    "birth_summary": summarize_birth_info(birth),
+                    "pillars_kor": pillars.korean_string(),
+                    "pillars_hanja": pillars.hanja_string(),
+                    "one_line": one_line,
+                }
+            except Exception as exc:  # noqa: BLE001
+                saju_preview_error = f"만세력 계산 실패: {str(exc)[:120]}"
+
     return templates.TemplateResponse(
         request,
         "app_workspace.html",
@@ -541,6 +614,9 @@ def app_account_workspace(
             "preview_map": preview_map,
             "brand_profiles": brand_profiles,
             "prompt_settings": prompt_settings,
+            "saju_preview_form": saju_form,
+            "saju_preview": saju_preview,
+            "saju_preview_error": saju_preview_error,
         },
     )
 

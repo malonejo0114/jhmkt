@@ -96,6 +96,33 @@ def _load_related_user_history_texts(
     ]
 
 
+def _infer_saju_topic(question: str) -> str:
+    text = question.replace(" ", "")
+    if any(token in text for token in ("연애", "사랑", "결혼", "이별", "재회", "썸")):
+        return "연애운"
+    if any(token in text for token in ("금전", "재물", "돈", "투자", "수입", "지출")):
+        return "금전운"
+    if any(token in text for token in ("직장", "취업", "이직", "사업", "승진", "커리어")):
+        return "직업운"
+    if any(token in text for token in ("건강", "몸", "컨디션", "병원", "질병")):
+        return "건강운"
+    if any(token in text for token in ("학업", "시험", "공부", "입시")):
+        return "학업운"
+    return "종합운"
+
+
+def _build_saju_topic_fallback(topic: str, pillars_kor: str) -> str:
+    by_topic = {
+        "연애운": f"{pillars_kor} 기준 연애운은 서두르기보다 대화 속도를 맞추는 쪽이 유리합니다.",
+        "금전운": f"{pillars_kor} 기준 금전운은 큰 베팅보다 지출 통제와 분산이 더 유리합니다.",
+        "직업운": f"{pillars_kor} 기준 직업운은 방향 전환보다 현재 루틴 고도화가 성과에 유리합니다.",
+        "건강운": f"{pillars_kor} 기준 건강운은 무리한 강도보다 수면·회복 리듬 관리가 더 중요합니다.",
+        "학업운": f"{pillars_kor} 기준 학업운은 과목 확장보다 약점 한 과목 집중 보완이 유리합니다.",
+        "종합운": f"{pillars_kor} 기준 종합운은 급한 결정 대신 순서 정리 후 실행하는 흐름이 유리합니다.",
+    }
+    return by_topic.get(topic, by_topic["종합운"])
+
+
 def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: ThreadsCommentEvent) -> str:
     settings = get_settings()
     fallback = "댓글 감사합니다. 생년월일(양력)과 태어난 시간을 알려주시면 만세력 기준으로 답변드릴게요."
@@ -113,19 +140,22 @@ def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: Thre
         return fallback
 
     if saju_ctx.is_complete and saju_ctx.four_pillars:
-        question = saju_ctx.question_text or "추가 질문 없음"
+        question = saju_ctx.question_text or "종합운"
+        topic = _infer_saju_topic(question)
         pillars_kor = saju_ctx.four_pillars.korean_string()
         pillars_hanja = saju_ctx.four_pillars.hanja_string()
         saju_style = (
             f"{style_prompt}\n" if style_prompt else ""
         ) + (
             "만세력 기반 한 줄 답변. 단정/공포 조장 금지, 실천 팁 중심.\n"
+            f"질문 주제: {topic}\n"
             f"출생정보: {saju_ctx.birth_summary}\n"
             f"사주(한글): {pillars_kor}\n"
             f"사주(한자): {pillars_hanja}\n"
-            f"질문: {question}"
+            f"질문: {question}\n"
+            "답변 규칙: 질문 주제를 직접 언급하고, 사주(일주/시주) 근거를 짧게 포함하며, 한국어 한 문장으로 작성."
         )
-        answer_fallback = f"{pillars_kor} 기준으로 보면 오늘은 무리한 결정보다 순서 정리가 유리합니다."
+        answer_fallback = _build_saju_topic_fallback(topic, pillars_kor)
         if not settings.engagement_ai_reply_enabled:
             return answer_fallback
         return (

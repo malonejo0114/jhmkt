@@ -24,12 +24,12 @@ def build_content_generation_prompt(
     emoji_label = "허용" if emoji_mode == "ON" else "금지"
     clean_disclosure = disclosure_line.strip()
     disclosure_rule = (
-        f"1) threads_body 첫 줄은 아래 문구와 완전히 동일:\n        {clean_disclosure}"
+        f"1) threads_body에는 아래 고지문을 포함하지 말 것:\n        {clean_disclosure}"
         if clean_disclosure
-        else "1) threads_body 첫 줄 고정 문구 제약 없음"
+        else "1) threads_body 고지문 제약 없음"
     )
     first_reply_rule = (
-        "4) threads_first_reply는 고지문 + 링크를 모두 포함"
+        f"4) threads_first_reply 첫 줄은 아래 고지문과 완전히 동일하고, 다음 줄에 링크 포함:\n        {clean_disclosure}"
         if clean_disclosure
         else "4) threads_first_reply는 링크를 포함"
     )

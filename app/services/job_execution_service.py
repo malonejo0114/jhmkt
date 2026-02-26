@@ -39,6 +39,42 @@ def _find_job_for_update(db: Session, job_id: int) -> PostJob | None:
     )
 
 
+def _strip_exact_line(text: str, line: str) -> str:
+    clean_line = line.strip()
+    if not clean_line:
+        return text.strip()
+    kept: list[str] = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped == clean_line:
+            continue
+        kept.append(stripped)
+    return "\n".join(kept).strip()
+
+
+def _ensure_first_line(text: str, line: str) -> str:
+    clean_line = line.strip()
+    if not clean_line:
+        return text.strip()
+    lines = []
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+        if stripped == clean_line:
+            continue
+        lines.append(stripped)
+    tail = "\n".join(lines).strip()
+    return f"{clean_line}\n{tail}".strip() if tail else clean_line
+
+
+def _is_coupang_content(unit: ContentUnit) -> bool:
+    source = (unit.original_coupang_url or "").lower()
+    return "coupang" in source
+
+
 def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
     account = db.get(ThreadsAccount, job.account_ref)
     if not account:
@@ -53,7 +89,13 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
         .scalars()
         .first()
     )
+    settings = get_settings()
+    disclosure_line = settings.disclosure_line.strip() if _is_coupang_content(unit) else ""
+    root_text = unit.threads_body.strip()
     reply_text = unit.threads_first_reply.strip()
+    if disclosure_line:
+        root_text = _strip_exact_line(root_text, disclosure_line)
+        reply_text = _ensure_first_line(reply_text, disclosure_line)
     now_utc = datetime.now(timezone.utc)
 
     if existing and existing.root_post_id and existing.first_reply_id:
@@ -77,7 +119,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             reply_to_id=existing.root_post_id,
             message=reply_text,
         )
-        existing.root_text = unit.threads_body
+        existing.root_text = root_text
         existing.reply_text = reply_text
         if reply_post_id:
             existing.first_reply_id = reply_post_id
@@ -93,14 +135,14 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
     result = publish_threads(
         db=db,
         account=account,
-        root_text=unit.threads_body,
+        root_text=root_text,
         reply_text=reply_text,
     )
 
     if existing:
         existing.root_post_id = result.root_post_id
         existing.first_reply_id = result.reply_post_id
-        existing.root_text = unit.threads_body
+        existing.root_text = root_text
         existing.reply_text = reply_text or None
         existing.root_permalink = result.permalink
         existing.published_at = now_utc
@@ -112,7 +154,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             threads_account_id=account.id,
             root_post_id=result.root_post_id,
             first_reply_id=result.reply_post_id,
-            root_text=unit.threads_body,
+            root_text=root_text,
             reply_text=reply_text or None,
             root_permalink=result.permalink,
             published_at=now_utc,

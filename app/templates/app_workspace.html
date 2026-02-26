@@ -198,6 +198,10 @@
               <input type="hidden" name="return_to" value="{{ return_to }}" />
               <button type="submit" class="mono-btn mono-btn-outline">스레드 반려</button>
             </form>
+            <form method="post" action="/app/actions/content/{{ unit.id }}/publish-now-threads">
+              <input type="hidden" name="return_to" value="{{ return_to }}" />
+              <button type="submit" class="mono-btn mono-btn-pink">바로올리기</button>
+            </form>
           </div>
         </article>
         {% else %}

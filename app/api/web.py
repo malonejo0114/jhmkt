@@ -30,6 +30,7 @@ from app.models import (
     ContentUnit,
     InstagramAccount,
     JobStatus,
+    JobType,
     PostJob,
     RenderedAsset,
     ReviewStatus,
@@ -1843,6 +1844,72 @@ def web_approve_content_threads(
         target = _safe_return_to(return_to, "/app")
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=스레드승인실패:{str(exc)}", status_code=303)
+
+
+@router.post("/app/actions/content/{content_unit_id}/publish-now-threads")
+def web_publish_content_threads_now(
+    content_unit_id: UUID,
+    request: Request,
+    return_to: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    maybe_user = _require_user_or_redirect(request, db)
+    if isinstance(maybe_user, RedirectResponse):
+        return maybe_user
+    user = maybe_user
+
+    try:
+        result = approve_channel_and_prepare_publish(
+            db,
+            content_unit_id,
+            channel=ChannelType.THREADS,
+            reviewer_id=user.id,
+        )
+        warnings = result.get("warnings") or []
+
+        job = (
+            db.execute(
+                select(PostJob).where(
+                    PostJob.content_unit_id == content_unit_id,
+                    PostJob.channel == ChannelType.THREADS,
+                    PostJob.job_type == JobType.THREADS_ROOT,
+                ).order_by(PostJob.id.desc())
+            )
+            .scalars()
+            .first()
+        )
+        if not job:
+            raise ValueError("스레드 발행 잡을 찾을 수 없습니다.")
+
+        if job.status == JobStatus.SUCCESS:
+            flash = f"스레드 바로올리기:이미발행완료(job={job.id})"
+        elif job.status == JobStatus.RUNNING:
+            flash = f"스레드 바로올리기:현재발행중(job={job.id})"
+        else:
+            now_utc = datetime.now(timezone.utc)
+            job.scheduled_at = now_utc
+            job.next_retry_at = None
+            job.cloud_task_name = None
+            job.last_error_code = None
+            job.last_error_message = None
+            job.started_at = None
+            job.finished_at = None
+            job.attempts = 0
+            job.status = JobStatus.PENDING
+            db.commit()
+            enqueue_job_by_id(db, job.id)
+            flash = f"스레드 바로올리기큐등록(job={job.id})"
+
+        if warnings:
+            flash += f"|warning={';'.join(warnings)}"
+
+        target = _safe_return_to(return_to, "/app")
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{joiner}flash={flash}", status_code=303)
+    except Exception as exc:  # noqa: BLE001
+        target = _safe_return_to(return_to, "/app")
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{joiner}flash=스레드바로올리기실패:{str(exc)}", status_code=303)
 
 
 @router.post("/app/actions/content/{content_unit_id}/approve-instagram")

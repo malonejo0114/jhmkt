@@ -546,7 +546,7 @@ def _adapt_payload_for_saju(
     core = "\n".join(lines).strip()
     if "링크는 첫 댓글" not in core:
         core = f"{core}\n상담 링크는 첫 댓글에 남길게요.".strip()
-    payload["threads_body"] = f"{disclosure_line}\n{core}".strip() if disclosure_line else core
+    payload["threads_body"] = core
     payload["threads_first_reply"] = (
         f"{disclosure_line}\n사주 상담 신청: 댓글에 생년월일(양/음력), 태어난 시간, 성별을 남겨주세요.".strip()
         if disclosure_line

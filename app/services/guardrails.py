@@ -55,10 +55,8 @@ def validate_threads_body(
     if len(body) > max_chars:
         reasons.append(f"threads_body_too_long:{len(body)}")
 
-    if disclosure_line.strip():
-        first_line = body.splitlines()[0].strip() if body.strip() else ""
-        if first_line != disclosure_line:
-            reasons.append("disclosure_line_not_first")
+    if disclosure_line.strip() and disclosure_line.strip() in body:
+        reasons.append("disclosure_line_in_body")
 
     if "링크는 첫 댓글" not in body:
         reasons.append("missing_first_comment_phrase")

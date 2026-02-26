@@ -59,6 +59,39 @@ def _apply_emoji_mode(payload: dict[str, Any], emoji_mode: str) -> dict[str, Any
     return payload
 
 
+def _move_disclosure_to_first_reply(payload: dict[str, Any], disclosure_line: str) -> dict[str, Any]:
+    clean_disclosure = disclosure_line.strip()
+    body_raw = str(payload.get("threads_body", ""))
+    first_reply_raw = str(payload.get("threads_first_reply", ""))
+
+    body_lines = []
+    for line in body_raw.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if clean_disclosure and text == clean_disclosure:
+            continue
+        body_lines.append(text)
+    payload["threads_body"] = "\n".join(body_lines).strip()
+
+    reply_lines = []
+    for line in first_reply_raw.splitlines():
+        text = line.strip()
+        if not text:
+            continue
+        if clean_disclosure and text == clean_disclosure:
+            continue
+        reply_lines.append(text)
+    reply_core = "\n".join(reply_lines).strip()
+    if clean_disclosure:
+        payload["threads_first_reply"] = (
+            f"{clean_disclosure}\n{reply_core}".strip() if reply_core else clean_disclosure
+        )
+    else:
+        payload["threads_first_reply"] = reply_core
+    return payload
+
+
 def _fallback_payload(
     topic: str,
     category: str,
@@ -107,7 +140,7 @@ def _fallback_payload(
 
     emoji_suffix = " 🔥" if emoji_mode == "ON" else ""
 
-    threads_body = f"{disclosure_line}\n{hook}{emoji_suffix}\n{body_line}\n{cta_line}"
+    threads_body = f"{hook}{emoji_suffix}\n{body_line}\n{cta_line}"
     threads_first_reply = f"{disclosure_line}\n추천 링크: {short_url}"
     instagram_caption = (
         f"{disclosure_line}\n"
@@ -128,7 +161,8 @@ def _fallback_payload(
         "slides": slides,
         "render_options": {"font_style": "sans", "background_mode": "google_free", "template_style": "campaign"},
     }
-    return _apply_emoji_mode(payload, emoji_mode)
+    payload = _apply_emoji_mode(payload, emoji_mode)
+    return _move_disclosure_to_first_reply(payload, disclosure_line)
 
 
 def _extract_json_block(text: str) -> dict[str, Any] | None:
@@ -233,7 +267,8 @@ def _gemini_generate(
     parsed = _extract_json_block(raw_text)
     if not parsed or not _validate_payload(parsed):
         return None
-    return _apply_emoji_mode(parsed, emoji_mode)
+    payload = _apply_emoji_mode(parsed, emoji_mode)
+    return _move_disclosure_to_first_reply(payload, disclosure_line)
 
 
 def generate_weekly_hook_templates(top_terms: list[str]) -> list[str]:

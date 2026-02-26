@@ -381,6 +381,7 @@ def app_account_workspace(
         return RedirectResponse("/app?flash=Threads계정을 찾을 수 없습니다.", status_code=303)
 
     target_date = biz_date or kst_today()
+    settings = get_settings()
     ig_accounts = (
         db.execute(
             select(InstagramAccount)
@@ -687,6 +688,7 @@ def app_account_workspace(
             "saju_preview_form": saju_form,
             "saju_preview": saju_preview,
             "saju_preview_error": saju_preview_error,
+            "show_dispatch_test": settings.run_mode != "live",
         },
     )
 

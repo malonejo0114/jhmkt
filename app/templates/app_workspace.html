@@ -129,11 +129,13 @@
           <input type="date" name="biz_date" value="{{ today }}" required />
           <button type="submit" class="mono-btn mono-btn-black">승인된 스레드 예약 만들기</button>
         </form>
+        {% if show_dispatch_test %}
         <form method="post" action="/app/actions/dispatch" class="mono-form">
           <input type="hidden" name="return_to" value="{{ return_to }}" />
           <input type="number" name="limit" value="30" min="1" max="100" />
           <button type="submit" class="mono-btn mono-btn-black">지금 due 잡 실행(테스트용)</button>
         </form>
+        {% endif %}
         <hr class="mono-divider" />
         <h4>스레드 수동 게시 (사진 1장 가능)</h4>
         <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/publish-manual" class="mono-form js-single-submit" enctype="multipart/form-data">

@@ -161,6 +161,13 @@
           <input type="hidden" name="return_to" value="{{ return_to }}" />
           <button type="submit" class="mono-btn mono-btn-outline">스레드 모두 승인</button>
         </form>
+        <form method="post" action="/app/accounts/{{ threads_account.id }}/reject-all">
+          {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+          <input type="hidden" name="biz_date" value="{{ today }}" />
+          <input type="hidden" name="channel" value="THREADS" />
+          <input type="hidden" name="return_to" value="{{ return_to }}" />
+          <button type="submit" class="mono-btn mono-btn-outline">스레드 모두 반려</button>
+        </form>
       </div>
       <div class="mono-review-list">
         {% for unit in threads_pending_units %}

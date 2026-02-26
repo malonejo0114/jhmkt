@@ -425,3 +425,52 @@ def approve_all_pending_for_channel(
 
     db.commit()
     return {"updated": len(updated_ids), "content_unit_ids": updated_ids}
+
+
+def reject_all_pending_for_channel(
+    db: Session,
+    *,
+    biz_date,
+    threads_account_id: UUID | None,
+    instagram_account_id: UUID | None,
+    channel: ChannelType,
+    reviewer_id: UUID | None = None,
+) -> dict[str, Any]:
+    if channel == ChannelType.THREADS:
+        target_col = ContentUnit.threads_review_status
+    elif channel == ChannelType.INSTAGRAM:
+        target_col = ContentUnit.instagram_review_status
+    else:
+        raise ValueError(f"지원하지 않는 채널: {channel}")
+
+    conditions = [
+        ContentUnit.biz_date == biz_date,
+        target_col == REVIEW_PENDING,
+    ]
+    if threads_account_id is not None:
+        conditions.append(ContentUnit.threads_account_id == threads_account_id)
+    if instagram_account_id is not None:
+        conditions.append(ContentUnit.instagram_account_id == instagram_account_id)
+
+    units = (
+        db.execute(select(ContentUnit).where(and_(*conditions)).order_by(ContentUnit.slot_no.asc()))
+        .scalars()
+        .all()
+    )
+    if not units:
+        return {"updated": 0, "content_unit_ids": []}
+
+    now = datetime.now(timezone.utc)
+    updated_ids: list[UUID] = []
+    for unit in units:
+        if channel == ChannelType.THREADS:
+            unit.threads_review_status = REVIEW_REJECTED
+        else:
+            unit.instagram_review_status = REVIEW_REJECTED
+        _sync_overall_review_status(unit)
+        unit.reviewed_at = now
+        unit.reviewed_by = reviewer_id
+        updated_ids.append(unit.id)
+
+    db.commit()
+    return {"updated": len(updated_ids), "content_unit_ids": updated_ids}

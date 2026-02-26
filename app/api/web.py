@@ -78,6 +78,7 @@ from app.services.review_service import (
     approve_channel_and_prepare_publish,
     approve_and_prepare_publish,
     reject_content_channel,
+    reject_all_pending_for_channel,
     list_review_queue,
     reject_content_unit,
     update_instagram_copy,
@@ -1933,6 +1934,56 @@ def web_approve_all_for_channel(
         )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=일괄승인실패:{str(exc)}", status_code=303)
+
+
+@router.post("/app/accounts/{threads_account_id}/reject-all")
+def web_reject_all_for_channel(
+    threads_account_id: UUID,
+    request: Request,
+    ig_account_id: UUID | None = Form(default=None),
+    biz_date: date | None = Form(default=None),
+    channel: str = Form(...),
+    return_to: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    maybe_user = _require_user_or_redirect(request, db)
+    if isinstance(maybe_user, RedirectResponse):
+        return maybe_user
+    user = maybe_user
+    target_date = biz_date or kst_today()
+
+    channel_key = channel.strip().upper()
+    if channel_key not in {"THREADS", "INSTAGRAM"}:
+        target = _safe_return_to(return_to, _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date))
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{joiner}flash=지원하지않는채널", status_code=303)
+    if channel_key == "INSTAGRAM" and ig_account_id is None:
+        target = _safe_return_to(return_to, _workspace_url(threads_account_id, biz_date=target_date))
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{joiner}flash=카드뉴스채널은_IG계정선택이필요합니다", status_code=303)
+
+    try:
+        updated = reject_all_pending_for_channel(
+            db,
+            biz_date=target_date,
+            threads_account_id=threads_account_id,
+            instagram_account_id=ig_account_id,
+            channel=ChannelType(channel_key),
+            reviewer_id=user.id,
+        )
+        target = _safe_return_to(
+            return_to,
+            _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date),
+        )
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{joiner}flash=일괄반려완료:{int(updated.get('updated', 0))}건", status_code=303)
+    except Exception as exc:  # noqa: BLE001
+        target = _safe_return_to(
+            return_to,
+            _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date),
+        )
+        joiner = "&" if "?" in target else "?"
+        return RedirectResponse(f"{target}{joiner}flash=일괄반려실패:{str(exc)}", status_code=303)
 
 
 @router.post("/app/actions/content/{content_unit_id}/update-threads")

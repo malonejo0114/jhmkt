@@ -1108,6 +1108,7 @@ async def web_publish_manual_threads(
             text=clean_text,
             reply_text=first_reply.strip(),
             image_url=image_url,
+            use_reply_chain=active_vertical_tab == "SAJU",
         )
         return RedirectResponse(
             _workspace_url(
@@ -1118,6 +1119,7 @@ async def web_publish_manual_threads(
                 flash=(
                     f"수동게시완료:post={result.post_id}"
                     f"|reply={'Y' if result.reply_post_id else 'N'}"
+                    f"|extra={result.extra_reply_count}"
                 ),
             ),
             status_code=303,
@@ -2010,6 +2012,10 @@ def web_publish_content_threads_now(
                 run_status = str(run_result.get("status") or "UNKNOWN")
                 error_code = str(run_result.get("error_code") or "").strip()
                 flash = f"스레드 바로올리기실행(job={job.id}|status={run_status})"
+                if run_status == "SUCCESS":
+                    payload = run_result.get("result") if isinstance(run_result.get("result"), dict) else {}
+                    extra_count = int(payload.get("extra_reply_count") or 0)
+                    flash += f"|extra={extra_count}"
                 if error_code:
                     flash += f"|error={error_code}"
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 import time
 from typing import Any
 
@@ -28,6 +29,7 @@ class ThreadsManualPublishResult:
     post_id: str
     permalink: str
     reply_post_id: str | None
+    extra_reply_count: int = 0
 
 
 @dataclass
@@ -92,6 +94,22 @@ def _is_retryable_threads_reply_error(exc: Exception) -> bool:
         return True
     message = str(exc).lower()
     return "reply_to_id" in message or "temporar" in message or "try again" in message
+
+
+def split_threads_reply_chain(raw_text: str, max_items: int = 5) -> list[str]:
+    clean = str(raw_text or "").strip()
+    if not clean:
+        return []
+
+    if re.search(r"\n\s*---+\s*\n", clean):
+        chunks = re.split(r"\n\s*---+\s*\n", clean)
+    else:
+        chunks = re.split(r"\n\s*\n+", clean)
+
+    items = [chunk.strip() for chunk in chunks if chunk and chunk.strip()]
+    if not items:
+        return []
+    return items[: max(1, min(max_items, 10))]
 
 
 def try_send_threads_comment_reply(
@@ -311,6 +329,7 @@ def publish_threads_manual_post(
     text: str,
     reply_text: str = "",
     image_url: str | None = None,
+    use_reply_chain: bool = False,
 ) -> ThreadsManualPublishResult:
     settings = get_settings()
     clean_text = text.strip()
@@ -328,6 +347,7 @@ def publish_threads_manual_post(
             post_id=post_id,
             permalink=f"https://www.threads.net/t/{post_id}",
             reply_post_id=reply_id,
+            extra_reply_count=0,
         )
 
     base = f"{settings.threads_api_base_url.rstrip('/')}/{settings.threads_api_version}"
@@ -367,19 +387,33 @@ def publish_threads_manual_post(
 
     post_id = run_with_threads_token_retry(db, account, _manual_publish_with_token)
 
+    reply_chain = split_threads_reply_chain(clean_reply, max_items=5) if use_reply_chain else ([clean_reply] if clean_reply else [])
+
     reply_post_id: str | None = None
-    if clean_reply:
+    extra_reply_count = 0
+    if reply_chain:
         reply_post_id = try_send_threads_comment_reply(
             db=db,
             account=account,
             reply_to_id=post_id,
-            message=clean_reply,
+            message=reply_chain[0],
         )
+        if reply_post_id:
+            for extra_text in reply_chain[1:]:
+                sent_id = try_send_threads_comment_reply(
+                    db=db,
+                    account=account,
+                    reply_to_id=post_id,
+                    message=extra_text,
+                )
+                if sent_id:
+                    extra_reply_count += 1
 
     return ThreadsManualPublishResult(
         post_id=post_id,
         permalink=f"https://www.threads.net/t/{post_id}",
         reply_post_id=reply_post_id,
+        extra_reply_count=extra_reply_count,
     )
 
 

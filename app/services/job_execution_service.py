@@ -24,6 +24,7 @@ from app.services.publisher_service import (
     collect_threads_insights,
     publish_instagram_carousel,
     publish_threads,
+    split_threads_reply_chain,
     try_send_threads_comment_reply,
 )
 from app.services.render_service import ensure_rendered_assets
@@ -90,9 +91,18 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
         .first()
     )
     settings = get_settings()
-    disclosure_line = settings.disclosure_line.strip() if _is_coupang_content(unit) else ""
+    is_coupang = _is_coupang_content(unit)
+    is_saju = not is_coupang
+    disclosure_line = settings.disclosure_line.strip() if is_coupang else ""
     root_text = unit.threads_body.strip()
-    reply_text = unit.threads_first_reply.strip()
+    raw_reply_text = unit.threads_first_reply.strip()
+    if is_saju:
+        reply_chain = split_threads_reply_chain(raw_reply_text, max_items=5)
+        reply_text = reply_chain[0] if reply_chain else ""
+        extra_reply_texts = reply_chain[1:]
+    else:
+        reply_text = raw_reply_text
+        extra_reply_texts = []
     if disclosure_line:
         root_text = _strip_exact_line(root_text, disclosure_line)
         reply_text = _ensure_first_line(reply_text, disclosure_line)
@@ -104,6 +114,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             "reply_post_id": existing.first_reply_id,
             "permalink": existing.root_permalink,
             "idempotent": True,
+            "extra_reply_count": 0,
         }
 
     if existing and existing.root_post_id and not existing.first_reply_id:
@@ -113,6 +124,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
                 "reply_post_id": None,
                 "permalink": existing.root_permalink,
                 "idempotent": True,
+                "extra_reply_count": 0,
             }
         reply_post_id = try_send_threads_comment_reply(
             db=db,
@@ -121,14 +133,25 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             message=reply_text,
         )
         existing.root_text = root_text
-        existing.reply_text = reply_text
+        existing.reply_text = raw_reply_text
+        extra_reply_count = 0
         if reply_post_id:
+            for extra_text in extra_reply_texts:
+                sent_id = try_send_threads_comment_reply(
+                    db=db,
+                    account=account,
+                    reply_to_id=existing.root_post_id,
+                    message=extra_text,
+                )
+                if sent_id:
+                    extra_reply_count += 1
             existing.first_reply_id = reply_post_id
             existing.reply_published_at = now_utc
             return {
                 "root_post_id": existing.root_post_id,
                 "reply_post_id": reply_post_id,
                 "permalink": existing.root_permalink,
+                "extra_reply_count": extra_reply_count,
             }
         raise TransientPublishError("threads first reply pending", code="THREADS_REPLY_PENDING")
 
@@ -139,12 +162,23 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
         root_text=root_text,
         reply_text=reply_text,
     )
+    extra_reply_count = 0
+    if result.root_post_id and extra_reply_texts:
+        for extra_text in extra_reply_texts:
+            sent_id = try_send_threads_comment_reply(
+                db=db,
+                account=account,
+                reply_to_id=result.root_post_id,
+                message=extra_text,
+            )
+            if sent_id:
+                extra_reply_count += 1
 
     if existing:
         existing.root_post_id = result.root_post_id
         existing.first_reply_id = result.reply_post_id
         existing.root_text = root_text
-        existing.reply_text = reply_text or None
+        existing.reply_text = raw_reply_text or None
         existing.root_permalink = result.permalink
         existing.published_at = now_utc
         existing.reply_published_at = now_utc if result.reply_post_id else None
@@ -156,7 +190,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             root_post_id=result.root_post_id,
             first_reply_id=result.reply_post_id,
             root_text=root_text,
-            reply_text=reply_text or None,
+            reply_text=raw_reply_text or None,
             root_permalink=result.permalink,
             published_at=now_utc,
             reply_published_at=now_utc if result.reply_post_id else None,
@@ -174,6 +208,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
         "root_post_id": result.root_post_id,
         "reply_post_id": result.reply_post_id,
         "permalink": result.permalink,
+        "extra_reply_count": extra_reply_count,
     }
 
 

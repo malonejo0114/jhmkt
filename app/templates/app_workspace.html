@@ -167,6 +167,9 @@
           <textarea name="post_text" rows="3" placeholder="직접 쓸 스레드 본문" required></textarea>
           <label>첫 답글(선택)</label>
           <textarea name="first_reply" rows="2" placeholder="선택: 게시 직후 달 첫 답글"></textarea>
+          {% if active_tab == 'SAJU' %}
+          <p class="mono-help">사주 탭은 빈 줄(또는 `---`)로 구분해 최대 5개 답글을 순차로 게시합니다.</p>
+          {% endif %}
           <label>사진 첨부(선택)</label>
           <input type="file" name="image_file" accept=".jpg,.jpeg,.png,.webp,image/*" />
           <p class="mono-help">AI 생성 없이 지금 바로 스레드에 게시합니다.</p>
@@ -213,6 +216,9 @@
             <input type="hidden" name="return_to" value="{{ return_to }}" />
             <textarea name="threads_body" rows="4" required>{{ unit.threads_body }}</textarea>
             <textarea name="threads_first_reply" rows="2" required>{{ unit.threads_first_reply }}</textarea>
+            {% if active_tab == 'SAJU' %}
+            <p class="mono-help">사주 전용: 빈 줄(또는 `---`)로 나누면 첫 댓글 + 추가 댓글(최대 5개)로 발행됩니다.</p>
+            {% endif %}
             <button type="submit" class="mono-btn mono-btn-outline">스레드 문구 저장</button>
           </form>
           <div class="mono-actions">

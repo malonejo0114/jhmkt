@@ -102,7 +102,7 @@ def _load_related_user_history_texts(
 
 def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: ThreadsCommentEvent) -> str:
     settings = get_settings()
-    fallback = "댓글 감사합니다. 생년월일(양력)과 태어난 시간을 알려주시면 만세력 기준으로 답변드릴게요."
+    fallback = "댓글 감사합니다. 생년월일(양력), 태어난 시간, 성별을 알려주시면 만세력 기준으로 답변드릴게요."
     style_prompt = _resolve_threads_style_prompt(db, account)
 
     history_texts = _load_related_user_history_texts(db, event)
@@ -150,9 +150,9 @@ def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: Thre
         )
 
     style_prompt = (
-        f"{style_prompt}\n한 줄로 간결하게 답변하고, 사주 질문이면 생년월일(양력)과 생시를 요청하세요."
+        f"{style_prompt}\n한 줄로 간결하게 답변하고, 사주 질문이면 생년월일(양력), 생시, 성별을 요청하세요."
         if style_prompt
-        else "친절하고 간결한 한 줄 답변. 사주 질문이면 생년월일(양력)과 생시를 요청."
+        else "친절하고 간결한 한 줄 답변. 사주 질문이면 생년월일(양력), 생시, 성별을 요청."
     )
     if not settings.engagement_ai_reply_enabled:
         return fallback

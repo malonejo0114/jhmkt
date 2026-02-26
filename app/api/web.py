@@ -100,6 +100,7 @@ from app.services.saju_manseryeok_service import (
     calculate_four_pillars,
     infer_saju_topic,
     list_missing_birth_fields,
+    normalize_gender,
     summarize_birth_info,
 )
 from app.services.time_utils import KST, kst_today
@@ -365,6 +366,7 @@ def app_account_workspace(
     saju_day: str | None = None,
     saju_hour: str | None = None,
     saju_minute: str | None = None,
+    saju_gender: str | None = None,
     saju_calendar: str | None = None,
     saju_leap_month: str | None = None,
     saju_question: str | None = None,
@@ -604,6 +606,7 @@ def app_account_workspace(
         "day": (saju_day or "").strip(),
         "hour": (saju_hour or "").strip(),
         "minute": (saju_minute or "").strip(),
+        "gender": (saju_gender or "").strip(),
         "calendar": "lunar" if (saju_calendar or "").strip().lower() == "lunar" else "solar",
         "leap_month": _flag(saju_leap_month),
         "question": (saju_question or "").strip(),
@@ -617,6 +620,7 @@ def app_account_workspace(
             day=_optional_int(saju_form["day"]),
             hour=_optional_int(saju_form["hour"]),
             minute=_optional_int(saju_form["minute"]) or 0,
+            gender=normalize_gender(saju_form["gender"]),
             is_lunar=saju_form["calendar"] == "lunar",
             is_leap_month=saju_form["leap_month"],
         )

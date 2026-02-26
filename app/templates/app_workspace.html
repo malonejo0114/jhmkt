@@ -525,6 +525,14 @@
                 <option value="lunar" {% if saju_preview_form.calendar == 'lunar' %}selected{% endif %}>음력</option>
               </select>
             </div>
+            <div>
+              <label>성별</label>
+              <select name="saju_gender" required>
+                <option value="" {% if not saju_preview_form.gender %}selected{% endif %}>선택</option>
+                <option value="남성" {% if saju_preview_form.gender == '남성' %}selected{% endif %}>남성</option>
+                <option value="여성" {% if saju_preview_form.gender == '여성' %}selected{% endif %}>여성</option>
+              </select>
+            </div>
           </div>
           <label>질문(연애운/금전운 등)</label>
           <input name="saju_question" value="{{ saju_preview_form.question }}" placeholder="나는 연애운 궁금해" />
@@ -532,7 +540,7 @@
             <input type="checkbox" name="saju_leap_month" id="saju-leap-checkbox" value="1" {% if saju_preview_form.leap_month %}checked{% endif %} />
             윤달/윤월
           </label>
-          <p class="mono-help">입력값으로 만세력 4주를 계산하고 질문 주제 기준 1줄 해석을 보여줍니다.</p>
+          <p class="mono-help">입력값(생년월일/생시/성별)으로 만세력 4주를 계산하고 질문 주제 기준 1줄 해석을 보여줍니다.</p>
           <p class="mono-help">윤달=윤월(같은 말)이며, 음력 생일일 때만 해당되면 체크하세요. 양력은 체크 불필요합니다.</p>
           <button type="submit" class="mono-btn mono-btn-pink">만세력 조회</button>
         </form>

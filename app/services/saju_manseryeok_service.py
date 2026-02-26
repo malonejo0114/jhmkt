@@ -396,6 +396,10 @@ MERIDIEM_HOUR_RE = re.compile(
 HOUR_MINUTE_RE = re.compile(r"(?P<hour>2[0-3]|[01]?\d)\s*(?:시|:)\s*(?P<minute>[0-5]?\d)?\s*분?")
 HOUR_ONLY_RE = re.compile(r"(?P<hour>2[0-3]|[01]?\d)\s*시")
 UNKNOWN_HOUR_RE = re.compile(r"(생시|출생시간|태어난\s*시간)\s*(모름|미상|몰라)")
+GENDER_MALE_RE = re.compile(r"(?:^|\s)(?:나는|나|저는|저)?\s*(남자|남성|남)(?=$|\s|[,.!?)]|입니다|이에요|예요|임|야|고|인데|인데요)")
+GENDER_FEMALE_RE = re.compile(
+    r"(?:^|\s)(?:나는|나|저는|저)?\s*(여자|여성|여)(?=$|\s|[,.!?)]|입니다|이에요|예요|임|야|고|인데|인데요)"
+)
 
 
 @dataclass
@@ -405,6 +409,7 @@ class BirthInfoPartial:
     day: int | None = None
     hour: int | None = None
     minute: int | None = None
+    gender: str | None = None
     is_lunar: bool | None = None
     is_leap_month: bool | None = None
 
@@ -417,6 +422,7 @@ class BirthInfoPartial:
                 self.day,
                 self.hour,
                 self.minute,
+                self.gender,
                 self.is_lunar,
                 self.is_leap_month,
             )
@@ -678,6 +684,17 @@ def _adjust_hour(marker: str | None, hour: int) -> int:
     return hour
 
 
+def normalize_gender(value: str | None) -> str | None:
+    if value is None:
+        return None
+    token = value.strip().lower()
+    if token in {"남", "남자", "남성", "male", "m"}:
+        return "남성"
+    if token in {"여", "여자", "여성", "female", "f"}:
+        return "여성"
+    return None
+
+
 def _extract_birth_from_text(text: str) -> BirthInfoPartial:
     raw = text.strip()
     info = BirthInfoPartial()
@@ -691,6 +708,16 @@ def _extract_birth_from_text(text: str) -> BirthInfoPartial:
         info.is_lunar = False
     if "윤달" in raw or "윤월" in raw:
         info.is_leap_month = True
+    male_hit = bool(GENDER_MALE_RE.search(raw))
+    female_hit = bool(GENDER_FEMALE_RE.search(raw))
+    if male_hit ^ female_hit:
+        info.gender = "남성" if male_hit else "여성"
+    if info.gender is None:
+        for token in re.findall(r"[A-Za-z가-힣]+", raw):
+            normalized = normalize_gender(token)
+            if normalized:
+                info.gender = normalized
+                break
 
     full_date = DATE_RE.search(raw) or COMPACT_DATE_RE.search(raw)
     if full_date:
@@ -756,10 +783,11 @@ def _merge_birth(base: BirthInfoPartial, incoming: BirthInfoPartial) -> BirthInf
         day=base.day,
         hour=base.hour,
         minute=base.minute,
+        gender=base.gender,
         is_lunar=base.is_lunar,
         is_leap_month=base.is_leap_month,
     )
-    for key in ("year", "month", "day", "hour", "minute", "is_lunar", "is_leap_month"):
+    for key in ("year", "month", "day", "hour", "minute", "gender", "is_lunar", "is_leap_month"):
         value = getattr(incoming, key)
         if value is not None:
             setattr(merged, key, value)
@@ -793,6 +821,10 @@ def _clean_question_text(text: str) -> str:
         "몰라요",
         "몰라",
         "년생",
+        "남자",
+        "여자",
+        "남성",
+        "여성",
     ):
         cleaned = cleaned.replace(token, " ")
     for label in SHICHEN_HOUR_MAP:
@@ -816,6 +848,8 @@ def _birth_summary(info: BirthInfoPartial) -> str:
         parts.append("양력")
     if info.is_leap_month:
         parts.append("윤달")
+    if info.gender:
+        parts.append(info.gender)
     return " / ".join(parts)
 
 
@@ -829,6 +863,8 @@ def _missing_fields(info: BirthInfoPartial) -> list[str]:
         missing.append("생일")
     if info.hour is None:
         missing.append("생시")
+    if info.gender is None:
+        missing.append("성별")
     return missing
 
 

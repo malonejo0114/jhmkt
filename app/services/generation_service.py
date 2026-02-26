@@ -326,6 +326,10 @@ def _manual_schedule_times(
     if count <= 0:
         return []
 
+    now_local = datetime.now(tz=KST)
+    if biz_date < now_local.date():
+        raise ValueError("지난 게시 날짜로는 생성할 수 없습니다.")
+
     start_h = max(0, min(23, start_hour))
     end_h = max(1, min(23, end_hour))
     if end_h <= start_h:
@@ -333,15 +337,28 @@ def _manual_schedule_times(
 
     start_local = datetime.combine(biz_date, time(start_h, 0), tzinfo=KST)
     end_local = datetime.combine(biz_date, time(end_h, 0), tzinfo=KST)
+    if biz_date == now_local.date():
+        # 오늘 생성은 현재 시각 이후 슬롯만 허용한다.
+        min_start = (now_local + timedelta(minutes=2)).replace(second=0, microsecond=0)
+        if min_start > start_local:
+            start_local = min_start
     if end_local <= start_local:
-        end_local = start_local + timedelta(hours=1)
+        raise ValueError("선택한 시간이 현재보다 이전입니다. 종료 시각을 더 늦게 설정해주세요.")
 
     interval_seconds = (end_local - start_local).total_seconds() / (count + 1)
     times: list[datetime] = []
     for i in range(1, count + 1):
         base_local = start_local + timedelta(seconds=interval_seconds * i)
         jitter = (int(sha256_hex(f"{scope_seed}|{biz_date.isoformat()}|{i}")[:8], 16) % 19) - 9
-        times.append((base_local + timedelta(minutes=jitter)).astimezone(timezone.utc))
+        candidate_local = base_local + timedelta(minutes=jitter)
+        candidate_local = max(start_local, min(candidate_local, end_local))
+        if times:
+            prev_local = times[-1].astimezone(KST)
+            if candidate_local <= prev_local:
+                candidate_local = prev_local + timedelta(minutes=1)
+            if candidate_local > end_local:
+                raise ValueError("선택한 시간 범위가 너무 좁아 현재 이후 슬롯을 만들 수 없습니다.")
+        times.append(candidate_local.astimezone(timezone.utc))
     return times
 
 

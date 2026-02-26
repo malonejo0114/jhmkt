@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlencode
@@ -99,7 +99,7 @@ from app.services.saju_manseryeok_service import (
     list_missing_birth_fields,
     summarize_birth_info,
 )
-from app.services.time_utils import kst_today
+from app.services.time_utils import KST, kst_today
 from app.services.threads_engagement_service import (
     create_threads_reply_jobs_for_pending_events,
     ingest_threads_comment_events_polling,
@@ -199,6 +199,14 @@ def _optional_int(value: str | None) -> int | None:
 
 def _flag(value: str | None) -> bool:
     return str(value or "").strip().lower() in {"1", "true", "on", "yes", "y"}
+
+
+def _format_kst_datetime(value: datetime | None) -> str:
+    if value is None:
+        return "-"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")
 
 
 @router.get("/")
@@ -444,6 +452,10 @@ def app_account_workspace(
         )
         for asset in rendered_assets:
             preview_map.setdefault(asset.content_unit_id, []).append(asset_public_url(asset.gcs_uri))
+    scheduled_display_map = {
+        item.id: _format_kst_datetime(item.scheduled_at)
+        for item in (threads_pending_units + instagram_pending_units)
+    }
 
     jobs_filters = [ContentUnit.threads_account_id == threads_account.id, ContentUnit.biz_date == target_date]
     if selected_ig:
@@ -621,6 +633,7 @@ def app_account_workspace(
             "threads_engagement_available": threads_engagement_available,
             "threads_engagement_error": threads_engagement_error,
             "preview_map": preview_map,
+            "scheduled_display_map": scheduled_display_map,
             "brand_profiles": brand_profiles,
             "prompt_settings": prompt_settings,
             "saju_preview_form": saju_form,

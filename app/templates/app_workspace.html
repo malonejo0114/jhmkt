@@ -167,7 +167,7 @@
         <article class="mono-review-card">
           <div class="mono-review-head">
             <strong>slot {{ unit.slot_no }} | {{ unit.topic }}</strong>
-            <small>{{ unit.scheduled_at }}</small>
+            <small>{{ scheduled_display_map.get(unit.id, '-') }}</small>
           </div>
           <div class="mono-status-row">
             <span class="mono-status-pill {% if unit.threads_review_status == 'APPROVED' %}ok{% elif unit.threads_review_status == 'REJECTED' %}no{% endif %}">
@@ -302,7 +302,7 @@
         <article class="mono-review-card">
           <div class="mono-review-head">
             <strong>slot {{ unit.slot_no }} | {{ unit.topic }}</strong>
-            <small>{{ unit.scheduled_at }}</small>
+            <small>{{ scheduled_display_map.get(unit.id, '-') }}</small>
           </div>
           <div class="mono-status-row">
             <span class="mono-status-pill {% if unit.instagram_review_status == 'APPROVED' %}ok{% elif unit.instagram_review_status == 'REJECTED' %}no{% endif %}">

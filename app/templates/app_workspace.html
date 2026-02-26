@@ -8,9 +8,16 @@
 </head>
 <body class="app-mono-body">
   <main class="mono-wrap">
-    {% set return_to = '/app/accounts/' ~ threads_account.id ~ '?biz_date=' ~ today %}
+    {% set active_tab = active_vertical_tab or 'COUPANG' %}
+    {% set return_to = '/app/accounts/' ~ threads_account.id ~ '?biz_date=' ~ today ~ '&vertical_tab=' ~ active_tab %}
     {% if selected_ig %}
       {% set return_to = return_to ~ '&ig_account_id=' ~ selected_ig.id %}
+    {% endif %}
+    {% set coupang_tab_url = '/app/accounts/' ~ threads_account.id ~ '?biz_date=' ~ today ~ '&vertical_tab=COUPANG' %}
+    {% set saju_tab_url = '/app/accounts/' ~ threads_account.id ~ '?biz_date=' ~ today ~ '&vertical_tab=SAJU' %}
+    {% if selected_ig %}
+      {% set coupang_tab_url = coupang_tab_url ~ '&ig_account_id=' ~ selected_ig.id %}
+      {% set saju_tab_url = saju_tab_url ~ '&ig_account_id=' ~ selected_ig.id %}
     {% endif %}
     <header class="mono-header">
       <div>
@@ -29,11 +36,17 @@
 
     {% if flash %}<div class="mono-flash">{{ flash }}</div>{% endif %}
 
+    <section class="mono-tab-row">
+      <a href="{{ coupang_tab_url }}" class="mono-tab-btn {% if active_tab == 'COUPANG' %}is-active{% endif %}">쿠팡</a>
+      <a href="{{ saju_tab_url }}" class="mono-tab-btn {% if active_tab == 'SAJU' %}is-active{% endif %}">사주</a>
+    </section>
+
     <section class="mono-grid two">
       <article class="mono-panel">
         <h3>작업 계정</h3>
         <p>Threads: <strong>{{ threads_account.threads_user_id }}</strong></p>
         <form method="get" action="/app/accounts/{{ threads_account.id }}" class="mono-form-inline">
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="date" name="biz_date" value="{{ today }}" />
           {% if ig_accounts %}
           <select name="ig_account_id">
@@ -49,26 +62,34 @@
       </article>
 
       <article class="mono-panel">
-        <h3>오늘 상태</h3>
+        <h3>오늘 상태 ({{ '쿠팡' if active_tab == 'COUPANG' else '사주' }})</h3>
         <ul class="mono-list">
           <li><span>스레드 검수 대기</span><strong>{{ threads_pending_count }}건</strong></li>
           <li><span>스레드 승인 완료</span><strong>{{ threads_approved_count }}건</strong></li>
+          {% if active_tab == 'COUPANG' %}
           <li><span>카드뉴스 검수 대기</span><strong>{{ instagram_pending_count }}건</strong></li>
           <li><span>카드뉴스 승인 완료</span><strong>{{ instagram_approved_count }}건</strong></li>
+          {% endif %}
           <li><span>최근 잡</span><strong>{{ recent_jobs|length }}건</strong></li>
         </ul>
       </article>
     </section>
 
     <section class="mono-panel">
-      <h3>0) 글쓰기 프롬프트 저장 (쿠팡/사주 분리)</h3>
+      <h3>0) 글쓰기 프롬프트 저장</h3>
       <form method="post" action="/app/accounts/{{ threads_account.id }}/prompts/save" class="mono-form">
         {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
         <input type="hidden" name="biz_date" value="{{ today }}" />
+        <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
+        {% if active_tab == 'COUPANG' %}
         <label>쿠팡 프롬프트</label>
         <textarea name="coupang_prompt" rows="4" required>{{ prompt_settings["COUPANG"] }}</textarea>
+        <textarea name="saju_prompt" class="mono-hidden-field" aria-hidden="true">{{ prompt_settings["SAJU"] }}</textarea>
+        {% else %}
         <label>사주 프롬프트</label>
         <textarea name="saju_prompt" rows="4" required>{{ prompt_settings["SAJU"] }}</textarea>
+        <textarea name="coupang_prompt" class="mono-hidden-field" aria-hidden="true">{{ prompt_settings["COUPANG"] }}</textarea>
+        {% endif %}
         <button type="submit" class="mono-btn mono-btn-black">프롬프트 저장</button>
       </form>
     </section>
@@ -78,15 +99,14 @@
         <h3>1) 스레드 전용 AI 생성</h3>
         <form method="post" action="/app/accounts/{{ threads_account.id }}/generate-keywords" class="mono-form js-single-submit">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
+          <input type="hidden" name="vertical_mode" value="{{ active_tab }}" />
           <label>키워드 (쉼표/줄바꿈, 최대 10개)</label>
           <textarea name="keywords" rows="5" placeholder="에어프라이어, 가습기, 무선청소기" required></textarea>
           <div class="mono-form-inline">
             <div>
               <label>콘텐츠 모드</label>
-              <select name="vertical_mode">
-                <option value="COUPANG">쿠팡 제휴</option>
-                <option value="SAJU">사주</option>
-              </select>
+              <input value="{{ '쿠팡 제휴' if active_tab == 'COUPANG' else '사주' }}" disabled />
             </div>
             <div>
               <label>말투</label>
@@ -126,6 +146,7 @@
         <h3>2) 스레드 예약/발행</h3>
         <form method="post" action="/app/accounts/{{ threads_account.id }}/schedule-approved-threads" class="mono-form">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="date" name="biz_date" value="{{ today }}" required />
           <button type="submit" class="mono-btn mono-btn-black">승인된 스레드 예약 만들기</button>
         </form>
@@ -141,6 +162,7 @@
         <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/publish-manual" class="mono-form js-single-submit" enctype="multipart/form-data">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <label>게시 본문</label>
           <textarea name="post_text" rows="3" placeholder="직접 쓸 스레드 본문" required></textarea>
           <label>첫 답글(선택)</label>
@@ -159,6 +181,7 @@
         <form method="post" action="/app/accounts/{{ threads_account.id }}/approve-all">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="hidden" name="channel" value="THREADS" />
           <input type="hidden" name="return_to" value="{{ return_to }}" />
           <button type="submit" class="mono-btn mono-btn-outline">스레드 모두 승인</button>
@@ -166,6 +189,7 @@
         <form method="post" action="/app/accounts/{{ threads_account.id }}/reject-all">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="hidden" name="channel" value="THREADS" />
           <input type="hidden" name="return_to" value="{{ return_to }}" />
           <button type="submit" class="mono-btn mono-btn-outline">스레드 모두 반려</button>
@@ -212,12 +236,15 @@
       </div>
     </section>
 
+    {% if active_tab == 'COUPANG' %}
     <section class="mono-grid two">
       <article class="mono-panel">
         <h3>4) 카드뉴스 수동 생성</h3>
         {% if selected_ig %}
         <form method="post" action="/app/accounts/{{ threads_account.id }}/cards/create-manual" class="mono-form js-single-submit">
           <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
+          <input type="hidden" name="vertical_mode" value="COUPANG" />
           <label>주제</label>
           <input name="topic" placeholder="예: 에어프라이어 비교 가이드" required />
           <label>추가 메모(선택)</label>
@@ -225,10 +252,7 @@
           <div class="mono-form-inline">
             <div>
               <label>콘텐츠 모드</label>
-              <select name="vertical_mode">
-                <option value="COUPANG">쿠팡 제휴</option>
-                <option value="SAJU">사주</option>
-              </select>
+              <input value="쿠팡 제휴" disabled />
             </div>
             <div>
               <label>슬라이드 수(4~7)</label>
@@ -243,7 +267,7 @@
               </select>
             </div>
           </div>
-          <input name="coupang_url" placeholder="쿠팡 URL (쿠팡 모드에서 비우면 자동 검색 링크)" />
+          <input name="coupang_url" placeholder="쿠팡 URL (비우면 자동 검색 링크)" />
           <div class="mono-form-inline">
             <div>
               <label>이미지 소스</label>
@@ -287,6 +311,7 @@
         {% if selected_ig %}
         <form method="post" action="/app/accounts/{{ threads_account.id }}/schedule-approved-instagram" class="mono-form">
           <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="date" name="biz_date" value="{{ today }}" required />
           <button type="submit" class="mono-btn mono-btn-black">승인된 카드뉴스 예약 만들기</button>
         </form>
@@ -303,6 +328,7 @@
         <form method="post" action="/app/accounts/{{ threads_account.id }}/approve-all">
           <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
           <input type="hidden" name="biz_date" value="{{ today }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="hidden" name="channel" value="INSTAGRAM" />
           <input type="hidden" name="return_to" value="{{ return_to }}" />
           <button type="submit" class="mono-btn mono-btn-outline">카드뉴스 모두 승인</button>
@@ -386,116 +412,122 @@
         {% endif %}
       </div>
     </section>
+    {% endif %}
 
-    <section class="mono-grid two">
-      <article class="mono-panel">
-        <h3>7) 스레드 댓글 자동답글</h3>
-        {% if not threads_engagement_available %}
-        <p class="mono-empty">{{ threads_engagement_error or '스레드 댓글 기능을 불러오지 못했습니다.' }}</p>
-        {% else %}
-        <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comment-style/save" class="mono-form">
-          {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
-          <input type="hidden" name="biz_date" value="{{ today }}" />
-          <label>댓글 자동답글 AI 프롬프트</label>
-          <textarea name="comment_style_prompt" rows="3" placeholder="예: 친근한 반말, 1문장, 질문 주제 먼저 언급, 과장 금지">{{ threads_comment_style_prompt }}</textarea>
-          <p class="mono-help">
-            저장 프로필: {{ threads_comment_profile_name or '없음(저장 시 자동 생성)' }} / 스레드 댓글 AI 답변 스타일에 즉시 반영됩니다.
-          </p>
-          <button type="submit" class="mono-btn mono-btn-outline">댓글 AI 프롬프트 저장</button>
-        </form>
+    {% if active_tab == 'SAJU' %}
+    <section class="mono-panel">
+      <h3>7) 스레드 댓글 자동답글</h3>
+      {% if not threads_engagement_available %}
+      <p class="mono-empty">{{ threads_engagement_error or '스레드 댓글 기능을 불러오지 못했습니다.' }}</p>
+      {% else %}
+      <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comment-style/save" class="mono-form">
+        {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+        <input type="hidden" name="biz_date" value="{{ today }}" />
+        <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
+        <label>댓글 자동답글 AI 프롬프트</label>
+        <textarea name="comment_style_prompt" rows="3" placeholder="예: 친근한 반말, 1문장, 질문 주제 먼저 언급, 과장 금지">{{ threads_comment_style_prompt }}</textarea>
+        <p class="mono-help">
+          저장 프로필: {{ threads_comment_profile_name or '없음(저장 시 자동 생성)' }} / 스레드 댓글 AI 답변 스타일에 즉시 반영됩니다.
+        </p>
+        <button type="submit" class="mono-btn mono-btn-outline">댓글 AI 프롬프트 저장</button>
+      </form>
 
-        <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comments/process" class="mono-form js-single-submit">
-          {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
-          <input type="hidden" name="biz_date" value="{{ today }}" />
-          <div class="mono-form-inline">
-            <div>
-              <label>최근 게시물 스캔 수</label>
-              <input type="number" name="limit_posts_per_account" min="1" max="50" value="20" />
-            </div>
-            <div>
-              <label>게시물당 댓글 조회 수</label>
-              <input type="number" name="limit_comments_per_post" min="1" max="100" value="50" />
-            </div>
-            <div>
-              <label>처리 잡 제한</label>
-              <input type="number" name="limit_jobs" min="1" max="200" value="100" />
-            </div>
+      <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comments/process" class="mono-form js-single-submit">
+        {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+        <input type="hidden" name="biz_date" value="{{ today }}" />
+        <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
+        <div class="mono-form-inline">
+          <div>
+            <label>최근 게시물 스캔 수</label>
+            <input type="number" name="limit_posts_per_account" min="1" max="50" value="20" />
           </div>
-          <p class="mono-help">스레드 댓글 수집 → 답글잡 생성 → AI 답글 발행을 한 번에 실행합니다.</p>
-          <button type="submit" class="mono-btn mono-btn-pink" data-loading-text="댓글 처리 중...">스레드 댓글 처리 실행</button>
-        </form>
-
-        <h4>스레드 질문/답글 로그</h4>
-        <table class="mono-table">
-          <thead><tr><th>질문(댓글)</th><th>우리 답글</th><th>상태</th><th>시각</th></tr></thead>
-          <tbody>
-          {% for row in recent_threads_qa_rows %}
-            <tr>
-              <td>{{ row.question }}</td>
-              <td>{{ row.answer }}</td>
-              <td>{{ row.status }}</td>
-              <td>{{ row.created_at }}</td>
-            </tr>
-          {% else %}
-            <tr><td colspan="4">내역 없음</td></tr>
-          {% endfor %}
-          </tbody>
-        </table>
-        {% endif %}
-      </article>
-
-      <article class="mono-panel">
-        <h3>8) 인스타 댓글 자동화 (선택)</h3>
-        {% if selected_ig %}
-        {% if not instagram_engagement_available %}
-        <p class="mono-empty">{{ instagram_engagement_error or '인스타 댓글 기능을 불러오지 못했습니다.' }}</p>
-        {% else %}
-        <form method="post" action="/app/accounts/{{ threads_account.id }}/comment-rules/simple" class="mono-form">
-          <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
-          <input type="hidden" name="biz_date" value="{{ today }}" />
-          <p class="mono-help">트리거 키워드를 비우면 모든 댓글에 AI 답글이 동작합니다.</p>
-          <input name="trigger_keyword" placeholder="트리거 키워드 (비우면 전체 댓글)" />
-          <textarea name="ai_style_prompt" rows="3" placeholder="AI 답글 프롬프트 (톤/말투/길이 지시)."></textarea>
-          <textarea name="message_template" rows="3" required placeholder="예: {{AI_REPLY}} 자세한 내용은 고정 댓글 참고해주세요.">{{ "{{AI_REPLY}} 자세한 내용은 고정 댓글 참고해주세요." }}</textarea>
-          <button type="submit" class="mono-btn mono-btn-pink">룰 추가</button>
-        </form>
-
-        <div class="mono-rule-list">
-          {% for rule in comment_rules %}
-          <article class="mono-rule-item">
-            <strong>{{ rule.name }}</strong>
-            <p>{{ '전체 댓글' if rule.trigger_value == '.*' else rule.trigger_value }} → 댓글 답글</p>
-            <p>AI 프롬프트: {{ rule.ai_style_prompt or '없음' }}</p>
-            <p>{{ rule.message_template }}</p>
-            <div class="mono-actions">
-              <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/toggle">
-                <input type="hidden" name="active" value="{{ 'false' if rule.active else 'true' }}" />
-                <input type="hidden" name="return_to" value="{{ return_to }}" />
-                <button type="submit" class="mono-btn mono-btn-outline">{{ '비활성화' if rule.active else '활성화' }}</button>
-              </form>
-              <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/delete">
-                <input type="hidden" name="return_to" value="{{ return_to }}" />
-                <button type="submit" class="mono-btn mono-btn-outline">삭제</button>
-              </form>
-            </div>
-          </article>
-          {% else %}
-          <p class="mono-empty">댓글 룰이 없습니다.</p>
-          {% endfor %}
+          <div>
+            <label>게시물당 댓글 조회 수</label>
+            <input type="number" name="limit_comments_per_post" min="1" max="100" value="50" />
+          </div>
+          <div>
+            <label>처리 잡 제한</label>
+            <input type="number" name="limit_jobs" min="1" max="200" value="100" />
+          </div>
         </div>
-        {% endif %}
-        {% else %}
-        <p class="mono-empty">Instagram 계정을 선택해 주세요.</p>
-        {% endif %}
-      </article>
-    </section>
+        <p class="mono-help">스레드 댓글 수집 → 답글잡 생성 → AI 답글 발행을 한 번에 실행합니다.</p>
+        <button type="submit" class="mono-btn mono-btn-pink" data-loading-text="댓글 처리 중...">스레드 댓글 처리 실행</button>
+      </form>
 
+      <h4>스레드 질문/답글 로그</h4>
+      <table class="mono-table">
+        <thead><tr><th>질문(댓글)</th><th>우리 답글</th><th>상태</th><th>시각</th></tr></thead>
+        <tbody>
+        {% for row in recent_threads_qa_rows %}
+          <tr>
+            <td>{{ row.question }}</td>
+            <td>{{ row.answer }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.created_at }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4">내역 없음</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </section>
+    {% else %}
+    <section class="mono-panel">
+      <h3>8) 인스타 댓글 자동화 (선택)</h3>
+      {% if selected_ig %}
+      {% if not instagram_engagement_available %}
+      <p class="mono-empty">{{ instagram_engagement_error or '인스타 댓글 기능을 불러오지 못했습니다.' }}</p>
+      {% else %}
+      <form method="post" action="/app/accounts/{{ threads_account.id }}/comment-rules/simple" class="mono-form">
+        <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
+        <input type="hidden" name="biz_date" value="{{ today }}" />
+        <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
+        <p class="mono-help">트리거 키워드를 비우면 모든 댓글에 AI 답글이 동작합니다.</p>
+        <input name="trigger_keyword" placeholder="트리거 키워드 (비우면 전체 댓글)" />
+        <textarea name="ai_style_prompt" rows="3" placeholder="AI 답글 프롬프트 (톤/말투/길이 지시)."></textarea>
+        <textarea name="message_template" rows="3" required placeholder="예: {{AI_REPLY}} 자세한 내용은 고정 댓글 참고해주세요.">{{ "{{AI_REPLY}} 자세한 내용은 고정 댓글 참고해주세요." }}</textarea>
+        <button type="submit" class="mono-btn mono-btn-pink">룰 추가</button>
+      </form>
+
+      <div class="mono-rule-list">
+        {% for rule in comment_rules %}
+        <article class="mono-rule-item">
+          <strong>{{ rule.name }}</strong>
+          <p>{{ '전체 댓글' if rule.trigger_value == '.*' else rule.trigger_value }} → 댓글 답글</p>
+          <p>AI 프롬프트: {{ rule.ai_style_prompt or '없음' }}</p>
+          <p>{{ rule.message_template }}</p>
+          <div class="mono-actions">
+            <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/toggle">
+              <input type="hidden" name="active" value="{{ 'false' if rule.active else 'true' }}" />
+              <input type="hidden" name="return_to" value="{{ return_to }}" />
+              <button type="submit" class="mono-btn mono-btn-outline">{{ '비활성화' if rule.active else '활성화' }}</button>
+            </form>
+            <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/delete">
+              <input type="hidden" name="return_to" value="{{ return_to }}" />
+              <button type="submit" class="mono-btn mono-btn-outline">삭제</button>
+            </form>
+          </div>
+        </article>
+        {% else %}
+        <p class="mono-empty">댓글 룰이 없습니다.</p>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <p class="mono-empty">Instagram 계정을 선택해 주세요.</p>
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if active_tab == 'SAJU' %}
     <section class="mono-grid two">
       <article class="mono-panel">
         <h3>9) 만세력 조회 (수동 입력)</h3>
         <form method="get" action="/app/accounts/{{ threads_account.id }}" class="mono-form" id="saju-preview-form">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />
+          <input type="hidden" name="vertical_tab" value="{{ active_tab }}" />
           <input type="hidden" name="saju_run" value="1" />
           <div class="mono-form-inline">
             <div>
@@ -627,6 +659,7 @@
         {% endif %}
       </article>
     </section>
+    {% endif %}
 
     <section class="mono-panel">
       <h3>최근 처리 로그</h3>

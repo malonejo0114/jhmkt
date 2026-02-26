@@ -829,6 +829,26 @@ textarea {
   font-weight: 700;
 }
 
+.mono-tab-row {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mono-tab-btn {
+  border: 1.5px solid #000;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-weight: 700;
+  background: #fff;
+}
+
+.mono-tab-btn.is-active {
+  background: #000;
+  color: #fff;
+}
+
 .mono-stats {
   margin-top: 16px;
   display: grid;
@@ -932,6 +952,10 @@ textarea {
 .mono-form {
   display: grid;
   gap: 8px;
+}
+
+.mono-hidden-field {
+  display: none;
 }
 
 .mono-form input,

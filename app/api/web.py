@@ -143,6 +143,7 @@ def _workspace_url(
     *,
     ig_account_id: UUID | None = None,
     biz_date: date | None = None,
+    vertical_tab: str | None = None,
     flash: str | None = None,
 ) -> str:
     base = f"/app/accounts/{threads_account_id}"
@@ -151,11 +152,22 @@ def _workspace_url(
         query["ig_account_id"] = str(ig_account_id)
     if biz_date is not None:
         query["biz_date"] = biz_date.isoformat()
+    if vertical_tab:
+        query["vertical_tab"] = _normalize_vertical_tab(vertical_tab)
     if flash:
         query["flash"] = flash
     if not query:
         return base
     return f"{base}?{urlencode(query)}"
+
+
+def _normalize_vertical_tab(raw: str | None) -> str:
+    return "SAJU" if str(raw or "").strip().upper() == "SAJU" else "COUPANG"
+
+
+def _vertical_scope_filter(active_vertical_tab: str):
+    is_saju = func.coalesce(ContentUnit.original_coupang_url, "").like("https://saju.local/%")
+    return is_saju if active_vertical_tab == "SAJU" else ~is_saju
 
 
 def _safe_return_to(return_to: str | None, fallback: str) -> str:
@@ -359,6 +371,7 @@ def app_account_workspace(
     db: Session = Depends(get_db),
     ig_account_id: UUID | None = None,
     biz_date: date | None = None,
+    vertical_tab: str | None = None,
     flash: str | None = None,
     saju_run: str | None = None,
     saju_year: str | None = None,
@@ -381,6 +394,8 @@ def app_account_workspace(
         return RedirectResponse("/app?flash=Threads계정을 찾을 수 없습니다.", status_code=303)
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    vertical_scope_condition = _vertical_scope_filter(active_vertical_tab)
     settings = get_settings()
     ig_accounts = (
         db.execute(
@@ -409,7 +424,11 @@ def app_account_workspace(
     get_or_create_profile_by_vertical(db, BrandVertical.SAJU)
     brand_profiles = list_brand_profiles(db)
 
-    threads_base_filters = [ContentUnit.threads_account_id == threads_account.id, ContentUnit.biz_date == target_date]
+    threads_base_filters = [
+        ContentUnit.threads_account_id == threads_account.id,
+        ContentUnit.biz_date == target_date,
+        vertical_scope_condition,
+    ]
     threads_pending_units = (
         db.execute(
             select(ContentUnit)
@@ -444,6 +463,7 @@ def app_account_workspace(
             ContentUnit.threads_account_id == threads_account.id,
             ContentUnit.instagram_account_id == selected_ig.id,
             ContentUnit.biz_date == target_date,
+            vertical_scope_condition,
         ]
         instagram_pending_units = (
             db.execute(
@@ -502,7 +522,11 @@ def app_account_workspace(
         for item in (threads_pending_units + instagram_pending_units)
     }
 
-    jobs_filters = [ContentUnit.threads_account_id == threads_account.id, ContentUnit.biz_date == target_date]
+    jobs_filters = [
+        ContentUnit.threads_account_id == threads_account.id,
+        ContentUnit.biz_date == target_date,
+        vertical_scope_condition,
+    ]
     if selected_ig:
         jobs_filters.append(ContentUnit.instagram_account_id == selected_ig.id)
     recent_jobs = (
@@ -689,6 +713,7 @@ def app_account_workspace(
             "saju_preview": saju_preview,
             "saju_preview_error": saju_preview_error,
             "show_dispatch_test": settings.run_mode != "live",
+            "active_vertical_tab": active_vertical_tab,
         },
     )
 
@@ -851,6 +876,7 @@ def web_generate_by_keywords(
     request: Request,
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     keywords: str = Form(...),
     start_hour: int = Form(default=9),
     end_hour: int = Form(default=22),
@@ -864,6 +890,10 @@ def web_generate_by_keywords(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    effective_vertical_mode = (
+        active_vertical_tab if vertical_tab is not None else _normalize_vertical_tab(vertical_mode)
+    )
     parsed_keywords = _normalize_keywords(keywords)
     if not parsed_keywords:
         return RedirectResponse(
@@ -871,6 +901,7 @@ def web_generate_by_keywords(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="키워드를_1개_이상_입력해주세요.(최대10개)",
             ),
             status_code=303,
@@ -885,7 +916,7 @@ def web_generate_by_keywords(
             keywords=parsed_keywords,
             start_hour=start_hour,
             end_hour=end_hour,
-            vertical_mode=vertical_mode,
+            vertical_mode=effective_vertical_mode,
             tone_style=tone_style,
             emoji_mode=emoji_mode,
             create_instagram=False,
@@ -895,6 +926,7 @@ def web_generate_by_keywords(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=(
                     f"스레드생성완료:{result['created_count']}건"
                     f"|모드={result['vertical_mode']}"
@@ -910,6 +942,7 @@ def web_generate_by_keywords(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"생성실패:{_short_error_message(exc)}",
             ),
             status_code=303,
@@ -922,6 +955,7 @@ def web_create_manual_cardnews(
     request: Request,
     ig_account_id: UUID = Form(...),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     topic: str = Form(...),
     memo: str = Form(default=""),
     vertical_mode: str = Form(default="COUPANG"),
@@ -939,6 +973,10 @@ def web_create_manual_cardnews(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    effective_vertical_mode = (
+        active_vertical_tab if vertical_tab is not None else _normalize_vertical_tab(vertical_mode)
+    )
     try:
         result = create_instagram_content_unit_manual(
             db,
@@ -947,7 +985,7 @@ def web_create_manual_cardnews(
             instagram_account_id=ig_account_id,
             topic=topic,
             memo=memo,
-            vertical_mode=vertical_mode,
+            vertical_mode=effective_vertical_mode,
             coupang_url=coupang_url,
             slide_count=slide_count,
             start_hour=start_hour,
@@ -961,6 +999,7 @@ def web_create_manual_cardnews(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=(
                     f"카드뉴스초안생성완료:{result['content_unit_id']}"
                     f"|슬라이드={result['slide_count']}"
@@ -974,6 +1013,7 @@ def web_create_manual_cardnews(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"카드뉴스생성실패:{_short_error_message(exc)}",
             ),
             status_code=303,
@@ -989,6 +1029,7 @@ async def web_publish_manual_threads(
     image_file: UploadFile | None = File(default=None),
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     maybe_user = _require_user_or_redirect(request, db)
@@ -996,6 +1037,7 @@ async def web_publish_manual_threads(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
     account = db.get(ThreadsAccount, threads_account_id)
     if not account or account.status != AccountStatus.ACTIVE:
         return RedirectResponse(
@@ -1003,6 +1045,7 @@ async def web_publish_manual_threads(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="수동게시실패:활성_Threads_계정을_찾을_수_없습니다.",
             ),
             status_code=303,
@@ -1015,6 +1058,7 @@ async def web_publish_manual_threads(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="수동게시실패:게시본문을_입력해주세요.",
             ),
             status_code=303,
@@ -1029,6 +1073,7 @@ async def web_publish_manual_threads(
                     threads_account_id,
                     ig_account_id=ig_account_id,
                     biz_date=target_date,
+                    vertical_tab=active_vertical_tab,
                     flash="수동게시실패:이미지는_jpg/jpeg/png/webp만_지원합니다.",
                 ),
                 status_code=303,
@@ -1040,6 +1085,7 @@ async def web_publish_manual_threads(
                     threads_account_id,
                     ig_account_id=ig_account_id,
                     biz_date=target_date,
+                    vertical_tab=active_vertical_tab,
                     flash="수동게시실패:이미지_파일이_비어있습니다.",
                 ),
                 status_code=303,
@@ -1067,6 +1113,7 @@ async def web_publish_manual_threads(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=(
                     f"수동게시완료:post={result.post_id}"
                     f"|reply={'Y' if result.reply_post_id else 'N'}"
@@ -1080,6 +1127,7 @@ async def web_publish_manual_threads(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"수동게시실패:{_short_error_message(exc)}",
             ),
             status_code=303,
@@ -1092,6 +1140,7 @@ def web_save_vertical_prompts(
     request: Request,
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     coupang_prompt: str = Form(default=""),
     saju_prompt: str = Form(default=""),
     db: Session = Depends(get_db),
@@ -1101,6 +1150,7 @@ def web_save_vertical_prompts(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
     try:
         save_vertical_prompt_settings(
             db,
@@ -1112,6 +1162,7 @@ def web_save_vertical_prompts(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="쿠팡/사주프롬프트저장완료",
             ),
             status_code=303,
@@ -1122,6 +1173,7 @@ def web_save_vertical_prompts(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"프롬프트저장실패:{_short_error_message(exc)}",
             ),
             status_code=303,
@@ -1134,6 +1186,7 @@ def web_save_threads_comment_style_prompt(
     request: Request,
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     comment_style_prompt: str = Form(default=""),
     db: Session = Depends(get_db),
 ):
@@ -1142,6 +1195,7 @@ def web_save_threads_comment_style_prompt(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
     account = db.get(ThreadsAccount, threads_account_id)
     if not account:
         return RedirectResponse(
@@ -1149,6 +1203,7 @@ def web_save_threads_comment_style_prompt(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="Threads계정을찾을수없습니다",
             ),
             status_code=303,
@@ -1163,6 +1218,7 @@ def web_save_threads_comment_style_prompt(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="스레드댓글AI프롬프트저장완료",
             ),
             status_code=303,
@@ -1174,6 +1230,7 @@ def web_save_threads_comment_style_prompt(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"댓글AI프롬프트저장실패:{_short_error_message(exc)}",
             ),
             status_code=303,
@@ -1186,6 +1243,7 @@ def web_schedule_account_approved(
     request: Request,
     ig_account_id: UUID = Form(...),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     maybe_user = _require_user_or_redirect(request, db)
@@ -1193,18 +1251,37 @@ def web_schedule_account_approved(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    vertical_scope_condition = _vertical_scope_filter(active_vertical_tab)
     try:
+        unit_ids = [
+            row[0]
+            for row in db.execute(
+                select(ContentUnit.id).where(
+                    and_(
+                        ContentUnit.biz_date == target_date,
+                        ContentUnit.threads_account_id == threads_account_id,
+                        ContentUnit.instagram_account_id == ig_account_id,
+                        ContentUnit.generation_status == ContentStatus.READY,
+                        ContentUnit.guardrail_passed.is_(True),
+                        vertical_scope_condition,
+                    )
+                )
+            ).all()
+        ]
         result = schedule_today_jobs(
             db,
             target_date,
             threads_account_id=threads_account_id,
             instagram_account_id=ig_account_id,
+            content_unit_ids=unit_ids,
         )
         return RedirectResponse(
             _workspace_url(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"예약생성완료:{result['created_jobs']}jobs",
             ),
             status_code=303,
@@ -1215,6 +1292,7 @@ def web_schedule_account_approved(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"예약생성실패:{str(exc)}",
             ),
             status_code=303,
@@ -1227,6 +1305,7 @@ def web_schedule_threads_only(
     request: Request,
     biz_date: date | None = Form(default=None),
     ig_account_id: UUID | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     maybe_user = _require_user_or_redirect(request, db)
@@ -1234,6 +1313,8 @@ def web_schedule_threads_only(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    vertical_scope_condition = _vertical_scope_filter(active_vertical_tab)
     try:
         unit_ids = [
             row[0]
@@ -1245,6 +1326,7 @@ def web_schedule_threads_only(
                         ContentUnit.generation_status == ContentStatus.READY,
                         ContentUnit.guardrail_passed.is_(True),
                         ContentUnit.threads_review_status == ReviewStatus.APPROVED.value,
+                        vertical_scope_condition,
                     )
                 )
             ).all()
@@ -1263,6 +1345,7 @@ def web_schedule_threads_only(
             threads_account_id,
             ig_account_id=ig_account_id,
             biz_date=target_date,
+            vertical_tab=active_vertical_tab,
             flash=flash,
         ),
         status_code=303,
@@ -1275,6 +1358,7 @@ def web_schedule_instagram_only(
     request: Request,
     ig_account_id: UUID = Form(...),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     maybe_user = _require_user_or_redirect(request, db)
@@ -1282,6 +1366,8 @@ def web_schedule_instagram_only(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    vertical_scope_condition = _vertical_scope_filter(active_vertical_tab)
     try:
         unit_ids = [
             row[0]
@@ -1294,6 +1380,7 @@ def web_schedule_instagram_only(
                         ContentUnit.generation_status == ContentStatus.READY,
                         ContentUnit.guardrail_passed.is_(True),
                         ContentUnit.instagram_review_status == ReviewStatus.APPROVED.value,
+                        vertical_scope_condition,
                     )
                 )
             ).all()
@@ -1313,6 +1400,7 @@ def web_schedule_instagram_only(
             threads_account_id,
             ig_account_id=ig_account_id,
             biz_date=target_date,
+            vertical_tab=active_vertical_tab,
             flash=flash,
         ),
         status_code=303,
@@ -1325,6 +1413,7 @@ def web_process_threads_comments(
     request: Request,
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     limit_posts_per_account: int = Form(default=20),
     limit_comments_per_post: int = Form(default=50),
     limit_events: int = Form(default=100),
@@ -1336,6 +1425,7 @@ def web_process_threads_comments(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
     try:
         ingest_result = ingest_threads_comment_events_polling(
             db,
@@ -1368,6 +1458,7 @@ def web_process_threads_comments(
             threads_account_id,
             ig_account_id=ig_account_id,
             biz_date=target_date,
+            vertical_tab=active_vertical_tab,
             flash=flash,
         ),
         status_code=303,
@@ -1383,6 +1474,7 @@ def web_add_simple_comment_rule(
     ai_style_prompt: str = Form(default=""),
     message_template: str = Form(...),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     db: Session = Depends(get_db),
 ):
     maybe_user = _require_user_or_redirect(request, db)
@@ -1390,6 +1482,7 @@ def web_add_simple_comment_rule(
         return maybe_user
 
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
     keyword = trigger_keyword.strip()
 
     try:
@@ -1415,6 +1508,7 @@ def web_add_simple_comment_rule(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash="댓글룰등록완료",
             ),
             status_code=303,
@@ -1425,6 +1519,7 @@ def web_add_simple_comment_rule(
                 threads_account_id,
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
+                vertical_tab=active_vertical_tab,
                 flash=f"댓글룰등록실패:{str(exc)}",
             ),
             status_code=303,
@@ -2038,6 +2133,7 @@ def web_approve_all_for_channel(
     request: Request,
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     channel: str = Form(...),
     return_to: str = Form(default=""),
     db: Session = Depends(get_db),
@@ -2047,14 +2143,31 @@ def web_approve_all_for_channel(
         return maybe_user
     user = maybe_user
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    vertical_scope_condition = _vertical_scope_filter(active_vertical_tab)
 
     channel_key = channel.strip().upper()
     if channel_key not in {"THREADS", "INSTAGRAM"}:
-        target = _safe_return_to(return_to, _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date))
+        target = _safe_return_to(
+            return_to,
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
+        )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=지원하지않는채널", status_code=303)
     if channel_key == "INSTAGRAM" and ig_account_id is None:
-        target = _safe_return_to(return_to, _workspace_url(threads_account_id, biz_date=target_date))
+        target = _safe_return_to(
+            return_to,
+            _workspace_url(
+                threads_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
+        )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=카드뉴스채널은_IG계정선택이필요합니다", status_code=303)
 
@@ -2070,6 +2183,7 @@ def web_approve_all_for_channel(
                 instagram_account_id=ig_account_id,
                 channel=one,
                 reviewer_id=user.id,
+                extra_condition=vertical_scope_condition,
             )
             updated_total += int(updated.get("updated", 0))
             unit_ids.extend(updated.get("content_unit_ids", []))
@@ -2085,7 +2199,12 @@ def web_approve_all_for_channel(
 
         target = _safe_return_to(
             return_to,
-            _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date),
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
         )
         joiner = "&" if "?" in target else "?"
         flash = (
@@ -2097,7 +2216,12 @@ def web_approve_all_for_channel(
     except Exception as exc:  # noqa: BLE001
         target = _safe_return_to(
             return_to,
-            _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date),
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
         )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=일괄승인실패:{str(exc)}", status_code=303)
@@ -2109,6 +2233,7 @@ def web_reject_all_for_channel(
     request: Request,
     ig_account_id: UUID | None = Form(default=None),
     biz_date: date | None = Form(default=None),
+    vertical_tab: str | None = Form(default=None),
     channel: str = Form(...),
     return_to: str = Form(default=""),
     db: Session = Depends(get_db),
@@ -2118,14 +2243,31 @@ def web_reject_all_for_channel(
         return maybe_user
     user = maybe_user
     target_date = biz_date or kst_today()
+    active_vertical_tab = _normalize_vertical_tab(vertical_tab)
+    vertical_scope_condition = _vertical_scope_filter(active_vertical_tab)
 
     channel_key = channel.strip().upper()
     if channel_key not in {"THREADS", "INSTAGRAM"}:
-        target = _safe_return_to(return_to, _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date))
+        target = _safe_return_to(
+            return_to,
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
+        )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=지원하지않는채널", status_code=303)
     if channel_key == "INSTAGRAM" and ig_account_id is None:
-        target = _safe_return_to(return_to, _workspace_url(threads_account_id, biz_date=target_date))
+        target = _safe_return_to(
+            return_to,
+            _workspace_url(
+                threads_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
+        )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=카드뉴스채널은_IG계정선택이필요합니다", status_code=303)
 
@@ -2137,17 +2279,28 @@ def web_reject_all_for_channel(
             instagram_account_id=ig_account_id,
             channel=ChannelType(channel_key),
             reviewer_id=user.id,
+            extra_condition=vertical_scope_condition,
         )
         target = _safe_return_to(
             return_to,
-            _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date),
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
         )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=일괄반려완료:{int(updated.get('updated', 0))}건", status_code=303)
     except Exception as exc:  # noqa: BLE001
         target = _safe_return_to(
             return_to,
-            _workspace_url(threads_account_id, ig_account_id=ig_account_id, biz_date=target_date),
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                vertical_tab=active_vertical_tab,
+            ),
         )
         joiner = "&" if "?" in target else "?"
         return RedirectResponse(f"{target}{joiner}flash=일괄반려실패:{str(exc)}", status_code=303)

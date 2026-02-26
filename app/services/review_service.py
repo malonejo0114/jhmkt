@@ -384,6 +384,7 @@ def approve_all_pending_for_channel(
     instagram_account_id: UUID | None,
     channel: ChannelType,
     reviewer_id: UUID | None = None,
+    extra_condition: Any | None = None,
 ) -> dict[str, Any]:
     if channel == ChannelType.THREADS:
         target_col = ContentUnit.threads_review_status
@@ -402,6 +403,8 @@ def approve_all_pending_for_channel(
         conditions.append(ContentUnit.threads_account_id == threads_account_id)
     if instagram_account_id is not None:
         conditions.append(ContentUnit.instagram_account_id == instagram_account_id)
+    if extra_condition is not None:
+        conditions.append(extra_condition)
 
     units = (
         db.execute(select(ContentUnit).where(and_(*conditions)).order_by(ContentUnit.slot_no.asc()))
@@ -435,6 +438,7 @@ def reject_all_pending_for_channel(
     instagram_account_id: UUID | None,
     channel: ChannelType,
     reviewer_id: UUID | None = None,
+    extra_condition: Any | None = None,
 ) -> dict[str, Any]:
     if channel == ChannelType.THREADS:
         target_col = ContentUnit.threads_review_status
@@ -451,6 +455,8 @@ def reject_all_pending_for_channel(
         conditions.append(ContentUnit.threads_account_id == threads_account_id)
     if instagram_account_id is not None:
         conditions.append(ContentUnit.instagram_account_id == instagram_account_id)
+    if extra_condition is not None:
+        conditions.append(extra_condition)
 
     units = (
         db.execute(select(ContentUnit).where(and_(*conditions)).order_by(ContentUnit.slot_no.asc()))

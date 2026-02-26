@@ -118,7 +118,7 @@ def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: Thre
 
     if saju_ctx.is_complete and saju_ctx.four_pillars:
         question = saju_ctx.question_text or "종합운"
-        topic = _infer_saju_topic(question)
+        topic = infer_saju_topic(question)
         pillars_kor = saju_ctx.four_pillars.korean_string()
         pillars_hanja = saju_ctx.four_pillars.hanja_string()
         saju_style = (

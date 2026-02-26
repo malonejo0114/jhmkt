@@ -547,15 +547,11 @@ def _adapt_payload_for_saju(
     if "링크는 첫 댓글" not in core:
         core = f"{core}\n상담 링크는 첫 댓글에 남길게요.".strip()
     payload["threads_body"] = core
-    payload["threads_first_reply"] = (
-        f"{disclosure_line}\n사주 상담 신청: 댓글에 생년월일(양/음력), 태어난 시간, 성별을 남겨주세요.".strip()
-        if disclosure_line
-        else "사주 상담 신청: 댓글에 생년월일(양/음력), 태어난 시간, 성별을 남겨주세요."
-    )
+    payload["threads_first_reply"] = ""
     payload["instagram_caption"] = (
-        f"{disclosure_line}\n{keyword} 사주 포인트를 카드뉴스로 정리했습니다.\n상담이 필요하면 댓글에 '상담'이라고 남겨주세요.".strip()
+        f"{disclosure_line}\n{keyword} 사주 포인트를 카드뉴스로 정리했습니다.".strip()
         if disclosure_line
-        else f"{keyword} 사주 포인트를 카드뉴스로 정리했습니다.\n상담이 필요하면 댓글에 '상담'이라고 남겨주세요."
+        else f"{keyword} 사주 포인트를 카드뉴스로 정리했습니다."
     )
     return payload
 

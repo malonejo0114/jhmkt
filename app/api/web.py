@@ -573,11 +573,18 @@ def app_account_workspace(
                 pillars = calculate_four_pillars(birth)
                 topic = infer_saju_topic(saju_form["question"])
                 one_line = build_saju_topic_fallback(topic, pillars.korean_string())
+                pillar_cells = [
+                    {"label": "시", "kor": pillars.hour, "hanja": pillars.hour_hanja, "known": pillars.hour_known},
+                    {"label": "일", "kor": pillars.day, "hanja": pillars.day_hanja, "known": True},
+                    {"label": "월", "kor": pillars.month, "hanja": pillars.month_hanja, "known": True},
+                    {"label": "년", "kor": pillars.year, "hanja": pillars.year_hanja, "known": True},
+                ]
                 saju_preview = {
                     "topic": topic,
                     "birth_summary": summarize_birth_info(birth),
                     "pillars_kor": pillars.korean_string(),
                     "pillars_hanja": pillars.hanja_string(),
+                    "pillar_cells": pillar_cells,
                     "one_line": one_line,
                 }
             except Exception as exc:  # noqa: BLE001

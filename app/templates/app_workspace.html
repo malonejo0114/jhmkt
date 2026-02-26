@@ -469,7 +469,7 @@
     <section class="mono-grid two">
       <article class="mono-panel">
         <h3>9) 만세력 조회 (수동 입력)</h3>
-        <form method="get" action="/app/accounts/{{ threads_account.id }}" class="mono-form">
+        <form method="get" action="/app/accounts/{{ threads_account.id }}" class="mono-form" id="saju-preview-form">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />
           <input type="hidden" name="saju_run" value="1" />
@@ -498,7 +498,7 @@
             </div>
             <div>
               <label>달력</label>
-              <select name="saju_calendar">
+              <select name="saju_calendar" id="saju-calendar-select">
                 <option value="solar" {% if saju_preview_form.calendar == 'solar' %}selected{% endif %}>양력</option>
                 <option value="lunar" {% if saju_preview_form.calendar == 'lunar' %}selected{% endif %}>음력</option>
               </select>
@@ -506,11 +506,12 @@
           </div>
           <label>질문(연애운/금전운 등)</label>
           <input name="saju_question" value="{{ saju_preview_form.question }}" placeholder="나는 연애운 궁금해" />
-          <label>
-            <input type="checkbox" name="saju_leap_month" value="1" {% if saju_preview_form.leap_month %}checked{% endif %} />
+          <label id="saju-leap-label">
+            <input type="checkbox" name="saju_leap_month" id="saju-leap-checkbox" value="1" {% if saju_preview_form.leap_month %}checked{% endif %} />
             윤달/윤월
           </label>
           <p class="mono-help">입력값으로 만세력 4주를 계산하고 질문 주제 기준 1줄 해석을 보여줍니다.</p>
+          <p class="mono-help">윤달=윤월(같은 말)이며, 음력 생일일 때만 해당되면 체크하세요. 양력은 체크 불필요합니다.</p>
           <button type="submit" class="mono-btn mono-btn-pink">만세력 조회</button>
         </form>
       </article>
@@ -520,6 +521,25 @@
         {% if saju_preview_error %}
         <p class="mono-empty">{{ saju_preview_error }}</p>
         {% elif saju_preview %}
+        <svg class="mono-saju-svg" viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="만세력 4주 요약">
+          <rect x="0" y="0" width="640" height="320" rx="16" fill="#f8f8fb" stroke="#000" stroke-width="2" />
+          <rect x="0" y="0" width="640" height="46" fill="#0e3e8a" rx="16" />
+          <text x="22" y="30" fill="#ffffff" font-size="20" font-weight="700">만세력 4주 요약</text>
+          <text x="620" y="30" fill="#d5e3ff" font-size="14" text-anchor="end">{{ saju_preview.birth_summary }}</text>
+          {% for cell in saju_preview.pillar_cells %}
+          {% set x = loop.index0 * 160 %}
+          <rect x="{{ x }}" y="46" width="160" height="40" fill="#f1f1f7" stroke="#000" />
+          <text x="{{ x + 80 }}" y="72" fill="#111" font-size="20" text-anchor="middle" font-weight="700">{{ cell.label }}</text>
+          <rect x="{{ x }}" y="86" width="160" height="120" fill="{% if loop.index0 % 2 == 0 %}#d9f7d9{% else %}#fdf5cc{% endif %}" stroke="#000" />
+          <text x="{{ x + 80 }}" y="158" fill="#a00000" font-size="56" text-anchor="middle" font-weight="700">{{ cell.kor }}</text>
+          <rect x="{{ x }}" y="206" width="160" height="44" fill="#fff" stroke="#000" />
+          <text x="{{ x + 80 }}" y="234" fill="#1f3f95" font-size="22" text-anchor="middle" font-weight="700">{{ cell.hanja }}</text>
+          <rect x="{{ x }}" y="250" width="160" height="52" fill="#fff" stroke="#000" />
+          <text x="{{ x + 80 }}" y="282" fill="#111" font-size="15" text-anchor="middle">
+            {% if not cell.known %}시간 미상{% else %}정상 계산{% endif %}
+          </text>
+          {% endfor %}
+        </svg>
         <p><strong>질문 주제:</strong> {{ saju_preview.topic }}</p>
         <p><strong>출생정보:</strong> {{ saju_preview.birth_summary }}</p>
         <p><strong>사주(한글):</strong> {{ saju_preview.pillars_kor }}</p>
@@ -605,6 +625,25 @@
           hint.textContent = '요청을 전송했습니다. 잠시만 기다려주세요...';
         });
       });
+
+      const calendarSelect = document.querySelector('#saju-calendar-select');
+      const leapCheckbox = document.querySelector('#saju-leap-checkbox');
+      const leapLabel = document.querySelector('#saju-leap-label');
+      const syncLeapInput = () => {
+        if (!calendarSelect || !leapCheckbox) return;
+        const isLunar = calendarSelect.value === 'lunar';
+        leapCheckbox.disabled = !isLunar;
+        if (!isLunar) {
+          leapCheckbox.checked = false;
+        }
+        if (leapLabel) {
+          leapLabel.style.opacity = isLunar ? '1' : '0.55';
+        }
+      };
+      if (calendarSelect && leapCheckbox) {
+        calendarSelect.addEventListener('change', syncLeapInput);
+        syncLeapInput();
+      }
     })();
   </script>
 </body>

@@ -24,6 +24,7 @@ from app.services.publisher_service import (
     collect_threads_insights,
     publish_instagram_carousel,
     publish_threads,
+    try_send_threads_comment_reply,
 )
 from app.services.render_service import ensure_rendered_assets
 from app.services.retry_policy import next_retry_at
@@ -52,6 +53,9 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
         .scalars()
         .first()
     )
+    reply_text = unit.threads_first_reply.strip()
+    now_utc = datetime.now(timezone.utc)
+
     if existing and existing.root_post_id and existing.first_reply_id:
         return {
             "root_post_id": existing.root_post_id,
@@ -60,21 +64,47 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             "idempotent": True,
         }
 
+    if existing and existing.root_post_id and not existing.first_reply_id:
+        if not reply_text:
+            return {
+                "root_post_id": existing.root_post_id,
+                "reply_post_id": None,
+                "permalink": existing.root_permalink,
+                "idempotent": True,
+            }
+        reply_post_id = try_send_threads_comment_reply(
+            account=account,
+            reply_to_id=existing.root_post_id,
+            message=reply_text,
+        )
+        existing.root_text = unit.threads_body
+        existing.reply_text = reply_text
+        if reply_post_id:
+            existing.first_reply_id = reply_post_id
+            existing.reply_published_at = now_utc
+            return {
+                "root_post_id": existing.root_post_id,
+                "reply_post_id": reply_post_id,
+                "permalink": existing.root_permalink,
+            }
+        raise TransientPublishError("threads first reply pending", code="THREADS_REPLY_PENDING")
+
+    should_enqueue_insights = not (existing and existing.root_post_id)
     result = publish_threads(
         db=db,
         account=account,
         root_text=unit.threads_body,
-        reply_text=unit.threads_first_reply,
+        reply_text=reply_text,
     )
 
     if existing:
         existing.root_post_id = result.root_post_id
         existing.first_reply_id = result.reply_post_id
         existing.root_text = unit.threads_body
-        existing.reply_text = unit.threads_first_reply
+        existing.reply_text = reply_text or None
         existing.root_permalink = result.permalink
-        existing.published_at = datetime.now(timezone.utc)
-        existing.reply_published_at = datetime.now(timezone.utc)
+        existing.published_at = now_utc
+        existing.reply_published_at = now_utc if result.reply_post_id else None
         threads_post = existing
     else:
         threads_post = ThreadsPost(
@@ -83,15 +113,19 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
             root_post_id=result.root_post_id,
             first_reply_id=result.reply_post_id,
             root_text=unit.threads_body,
-            reply_text=unit.threads_first_reply,
+            reply_text=reply_text or None,
             root_permalink=result.permalink,
-            published_at=datetime.now(timezone.utc),
-            reply_published_at=datetime.now(timezone.utc),
+            published_at=now_utc,
+            reply_published_at=now_utc if result.reply_post_id else None,
         )
         db.add(threads_post)
         db.flush()
 
-    _enqueue_threads_insight_tasks(threads_post.id, result.root_post_id)
+    if should_enqueue_insights:
+        _enqueue_threads_insight_tasks(threads_post.id, result.root_post_id)
+
+    if reply_text and not result.reply_post_id:
+        raise TransientPublishError("threads first reply pending", code="THREADS_REPLY_PENDING")
 
     return {
         "root_post_id": result.root_post_id,

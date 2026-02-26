@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import time
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -17,7 +18,7 @@ from app.services.security import decrypt_token
 @dataclass
 class ThreadsPublishResult:
     root_post_id: str
-    reply_post_id: str
+    reply_post_id: str | None
     permalink: str
 
 
@@ -78,6 +79,47 @@ def _extract_token(account: ThreadsAccount | InstagramAccount) -> str:
         raise PermanentPublishError("access token decrypt 실패", code="TOKEN_DECRYPT_FAILED") from exc
 
 
+THREADS_REPLY_RETRY_DELAYS_SECONDS = (0.0, 2.0, 5.0)
+
+
+def _is_retryable_threads_reply_error(exc: Exception) -> bool:
+    if isinstance(exc, TransientPublishError):
+        return True
+    if not isinstance(exc, PermanentPublishError):
+        return False
+    if exc.code in {"HTTP_400", "HTTP_408", "HTTP_409", "HTTP_429", "HTTP_500", "HTTP_502", "HTTP_503", "HTTP_504"}:
+        return True
+    message = str(exc).lower()
+    return "reply_to_id" in message or "temporar" in message or "try again" in message
+
+
+def try_send_threads_comment_reply(
+    *,
+    account: ThreadsAccount,
+    reply_to_id: str,
+    message: str,
+) -> str | None:
+    clean_message = message.strip()
+    if not clean_message:
+        return None
+
+    for index, delay_seconds in enumerate(THREADS_REPLY_RETRY_DELAYS_SECONDS):
+        if delay_seconds > 0:
+            time.sleep(delay_seconds)
+        try:
+            return send_threads_comment_reply(
+                account=account,
+                reply_to_id=reply_to_id,
+                message=clean_message,
+            )
+        except (TransientPublishError, PermanentPublishError) as exc:
+            if not _is_retryable_threads_reply_error(exc):
+                raise
+            if index == len(THREADS_REPLY_RETRY_DELAYS_SECONDS) - 1:
+                return None
+    return None
+
+
 def publish_threads(
     *,
     db: Session,
@@ -125,31 +167,11 @@ def publish_threads(
     if not root_post_id:
         raise PermanentPublishError("threads root publish id 누락", code="THREADS_PUBLISH_INVALID")
 
-    create_reply = request_json(
-        "POST",
-        f"{base}/{account.threads_user_id}/threads",
-        params={
-            "text": reply_text,
-            "media_type": "TEXT",
-            "reply_to_id": root_post_id,
-            "access_token": token,
-        },
+    reply_post_id = try_send_threads_comment_reply(
+        account=account,
+        reply_to_id=root_post_id,
+        message=reply_text,
     )
-    reply_creation_id = str(create_reply.get("id") or create_reply.get("creation_id") or "")
-    if not reply_creation_id:
-        raise PermanentPublishError("threads reply creation_id 누락", code="THREADS_REPLY_CREATE_INVALID")
-
-    publish_reply = request_json(
-        "POST",
-        f"{base}/{account.threads_user_id}/threads_publish",
-        params={
-            "creation_id": reply_creation_id,
-            "access_token": token,
-        },
-    )
-    reply_post_id = str(publish_reply.get("id") or "")
-    if not reply_post_id:
-        raise PermanentPublishError("threads reply publish id 누락", code="THREADS_REPLY_PUBLISH_INVALID")
 
     return ThreadsPublishResult(
         root_post_id=root_post_id,
@@ -326,7 +348,7 @@ def publish_threads_manual_post(
 
     reply_post_id: str | None = None
     if clean_reply:
-        reply_post_id = send_threads_comment_reply(
+        reply_post_id = try_send_threads_comment_reply(
             account=account,
             reply_to_id=post_id,
             message=clean_reply,

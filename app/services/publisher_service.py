@@ -29,6 +29,13 @@ class InstagramPublishResult:
 
 
 @dataclass
+class InstagramCommentReplyResult:
+    comment_id: str
+    reply_id: str
+    mode: str
+
+
+@dataclass
 class ThreadsInsightResult:
     media_id: str
     captured_at: datetime
@@ -243,6 +250,69 @@ def publish_instagram_carousel(
         carousel_creation_id=carousel_creation_id,
         carousel_media_id=media_id,
     )
+
+
+def send_instagram_private_reply(
+    *,
+    account: InstagramAccount,
+    comment_id: str,
+    message: str,
+) -> InstagramCommentReplyResult:
+    settings = get_settings()
+    if settings.run_mode == "mock":
+        seed = f"{account.id}|{comment_id}|{message}|private|{datetime.now(timezone.utc).isoformat()}"
+        return InstagramCommentReplyResult(
+            comment_id=comment_id,
+            reply_id=_mock_id("ig_private_reply", seed),
+            mode="PRIVATE_REPLY",
+        )
+
+    token = _extract_token(account)
+    base = f"{settings.instagram_api_base_url.rstrip('/')}/{settings.instagram_api_version}"
+    # NOTE: Endpoint can vary by app type/permissions; this path should be validated in production.
+    data = request_json(
+        "POST",
+        f"{base}/{comment_id}/private_replies",
+        params={
+            "message": message,
+            "access_token": token,
+        },
+    )
+    reply_id = str(data.get("id") or "")
+    if not reply_id:
+        raise PermanentPublishError("instagram private reply id 누락", code="IG_PRIVATE_REPLY_INVALID")
+    return InstagramCommentReplyResult(comment_id=comment_id, reply_id=reply_id, mode="PRIVATE_REPLY")
+
+
+def send_instagram_public_reply(
+    *,
+    account: InstagramAccount,
+    comment_id: str,
+    message: str,
+) -> InstagramCommentReplyResult:
+    settings = get_settings()
+    if settings.run_mode == "mock":
+        seed = f"{account.id}|{comment_id}|{message}|public|{datetime.now(timezone.utc).isoformat()}"
+        return InstagramCommentReplyResult(
+            comment_id=comment_id,
+            reply_id=_mock_id("ig_public_reply", seed),
+            mode="PUBLIC_REPLY",
+        )
+
+    token = _extract_token(account)
+    base = f"{settings.instagram_api_base_url.rstrip('/')}/{settings.instagram_api_version}"
+    data = request_json(
+        "POST",
+        f"{base}/{comment_id}/replies",
+        params={
+            "message": message,
+            "access_token": token,
+        },
+    )
+    reply_id = str(data.get("id") or "")
+    if not reply_id:
+        raise PermanentPublishError("instagram public reply id 누락", code="IG_PUBLIC_REPLY_INVALID")
+    return InstagramCommentReplyResult(comment_id=comment_id, reply_id=reply_id, mode="PUBLIC_REPLY")
 
 
 def collect_threads_insights(

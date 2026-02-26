@@ -22,6 +22,8 @@ def _provider_scopes(provider: str) -> str:
             [
                 "instagram_basic",
                 "instagram_content_publish",
+                "instagram_manage_comments",
+                "instagram_manage_messages",
                 "pages_show_list",
                 "pages_read_engagement",
                 "business_management",

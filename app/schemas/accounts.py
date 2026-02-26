@@ -3,7 +3,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from app.models.schema import AccountStatus
+from app.models.schema import AccountStatus, BrandVertical
 
 
 class ThreadsAccountCreate(BaseModel):
@@ -11,6 +11,7 @@ class ThreadsAccountCreate(BaseModel):
     threads_user_id: str = Field(min_length=1, max_length=64)
     access_token: str = Field(min_length=10)
     token_expires_at: datetime | None = None
+    brand_vertical: BrandVertical | None = None
 
 
 class InstagramAccountCreate(BaseModel):
@@ -18,6 +19,7 @@ class InstagramAccountCreate(BaseModel):
     ig_user_id: str = Field(min_length=1, max_length=64)
     access_token: str = Field(min_length=10)
     token_expires_at: datetime | None = None
+    brand_vertical: BrandVertical | None = None
 
 
 class AccountOut(BaseModel):

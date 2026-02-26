@@ -28,164 +28,557 @@
       <article class="stat-card"><h2>Instagram 계정</h2><strong>{{ instagram_accounts|length }}</strong></article>
     </section>
 
-    <section class="panel-grid">
+    <nav class="tabs" aria-label="dashboard tabs">
+      <button type="button" class="tab-btn is-active" data-tab-target="overview">개요</button>
+      <button type="button" class="tab-btn" data-tab-target="content">콘텐츠</button>
+      <button type="button" class="tab-btn" data-tab-target="accounts">계정</button>
+      <button type="button" class="tab-btn" data-tab-target="engagement">댓글자동화</button>
+      <button type="button" class="tab-btn" data-tab-target="ops">운영</button>
+    </nav>
+
+    <section class="tab-pane is-active" data-tab-pane="overview">
       <article class="panel">
-        <h3>빠른 실행</h3>
-        <form method="post" action="/app/actions/generate" class="row-form">
-          <label>생성 날짜</label>
-          <input type="date" name="biz_date" value="{{ today }}" required />
-          <label>개수(2~3)</label>
-          <input type="number" name="unit_count" value="3" min="2" max="3" required />
-          <button type="submit">오늘 콘텐츠 생성</button>
-        </form>
-
-        <form method="post" action="/app/actions/schedule" class="row-form">
-          <label>스케줄 날짜</label>
-          <input type="date" name="biz_date" value="{{ today }}" required />
-          <button type="submit">오늘 스케줄 생성</button>
-        </form>
-
-        <form method="post" action="/app/actions/bootstrap" class="row-form">
-          <label>부트스트랩</label>
-          <input type="date" name="biz_date" value="{{ today }}" required />
-          <button type="submit">생성+스케줄+큐</button>
-        </form>
-
-        <form method="post" action="/app/actions/dispatch" class="row-form">
-          <label>즉시 발행</label>
-          <input type="number" name="limit" value="20" min="1" max="100" />
-          <button type="submit">디스패치 실행</button>
-        </form>
-
-        <div class="actions-inline">
-          <form method="post" action="/app/actions/improve-daily"><button type="submit">일간 개선</button></form>
-          <form method="post" action="/app/actions/improve-weekly"><button type="submit">주간 개선</button></form>
-        </div>
-      </article>
-
-      <article class="panel">
-        <h3>최근 7일 성과</h3>
+        <h3>초기 설정 체크리스트</h3>
         <table>
           <thead>
-            <tr><th>날짜</th><th>유닛</th><th>성공</th><th>실패</th><th>조회</th><th>좋아요</th></tr>
+            <tr><th>항목</th><th>상태</th></tr>
           </thead>
           <tbody>
-          {% for row in dashboard.last_7_days %}
+            {% for key, ok in setup_summary.checks.items() %}
             <tr>
-              <td>{{ row.biz_date }}</td>
-              <td>{{ row.content_units }}</td>
-              <td>{{ row.jobs_success }}</td>
-              <td>{{ row.jobs_failed }}</td>
-              <td>{{ row.threads_views }}</td>
-              <td>{{ row.threads_likes }}</td>
+              <td>{{ key }}</td>
+              <td>{% if ok %}OK{% else %}MISSING{% endif %}</td>
             </tr>
-          {% endfor %}
+            {% endfor %}
           </tbody>
         </table>
-      </article>
-    </section>
-
-    <section class="panel-grid">
-      <article class="panel">
-        <h3>계정 등록</h3>
-        <div class="actions-inline">
-          <a class="btn btn-solid" href="/auth/connect/threads/start">Threads 연동하기</a>
-          <a class="btn btn-solid" href="/auth/connect/instagram/start">Instagram 연동하기</a>
-        </div>
-        <p class="inline-help">OAuth 연동이 안될 때만 아래 수동 입력을 사용하세요.</p>
-
-        <form method="post" action="/app/actions/add-threads-account" class="stack-form">
-          <h4>Threads</h4>
-          <input name="name" placeholder="계정명" required />
-          <input name="threads_user_id" placeholder="threads_user_id" required />
-          <input name="access_token" placeholder="access_token" required />
-          <button type="submit">Threads 계정 저장</button>
-        </form>
-
-        <form method="post" action="/app/actions/add-instagram-account" class="stack-form">
-          <h4>Instagram</h4>
-          <input name="name" placeholder="계정명" required />
-          <input name="ig_user_id" placeholder="ig_user_id" required />
-          <input name="access_token" placeholder="access_token" required />
-          <button type="submit">Instagram 계정 저장</button>
-        </form>
+        <p class="inline-help">누락: {{ setup_summary.missing | join(', ') if setup_summary.missing else '없음' }}</p>
+        <p class="inline-help">Threads Callback: {{ setup_summary.callbacks.threads_callback }}</p>
+        <p class="inline-help">Instagram Callback: {{ setup_summary.callbacks.instagram_callback }}</p>
+        <p class="inline-help">Webhook: {{ setup_summary.callbacks.meta_webhook }}</p>
       </article>
 
-      <article class="panel">
-        <h3>Seed 등록</h3>
-        <form method="post" action="/app/actions/trend-sync" class="stack-form">
-          <button type="submit">네이버 트렌드 동기화 실행</button>
-        </form>
-        <form method="post" action="/app/actions/add-seed" class="stack-form">
-          <input name="topic" placeholder="주제" required />
-          <input name="category" placeholder="카테고리" required />
-          <input name="source_url" placeholder="쿠팡 URL" required />
-          <div class="inline-grid">
-            <select name="source_type">
-              <option value="PRODUCT_URL">PRODUCT_URL</option>
-              <option value="SEARCH_URL">SEARCH_URL</option>
-            </select>
-            <input type="number" name="priority" min="1" max="100" value="50" />
-          </div>
-          <button type="submit">Seed 저장</button>
-        </form>
-      </article>
-    </section>
-
-    <section class="panel">
-      <h3>오늘 콘텐츠 유닛</h3>
-      <div class="unit-list">
-      {% for unit in today_units %}
-        <article class="unit-item">
-          <div class="unit-top">
-            <span class="slot">slot {{ unit.slot_no }}</span>
-            <span class="state">{{ unit.generation_status }}</span>
-          </div>
-          <h4>{{ unit.topic }}</h4>
-          <p>{{ unit.category }}</p>
-          <small>{{ unit.scheduled_at }}</small>
-        </article>
-      {% else %}
-        <p class="empty">아직 생성된 유닛이 없습니다.</p>
-      {% endfor %}
-      </div>
-    </section>
-
-    <section class="panel">
-      <h3>검수 대기 콘텐츠 (승인 후에만 스케줄/발행)</h3>
-      <p class="inline-help">승인 버튼을 누르면 해당 날짜의 스케줄 생성과 큐 적재를 자동으로 시도합니다.</p>
-      <div class="review-list">
-      {% for unit in review_queue %}
-        <article class="review-item">
-          <div class="review-meta">
-            <strong>{{ unit.biz_date }} / slot {{ unit.slot_no }}</strong>
-            <span>{{ unit.topic }} · {{ unit.category }}</span>
-          </div>
-          <form method="post" action="/app/actions/content/{{ unit.id }}/update" class="review-form">
-            <label>Threads 본문</label>
-            <textarea name="threads_body" rows="4" required>{{ unit.threads_body }}</textarea>
-            <label>Threads 첫 댓글</label>
-            <textarea name="threads_first_reply" rows="2" required>{{ unit.threads_first_reply }}</textarea>
-            <label>Instagram 캡션</label>
-            <textarea name="instagram_caption" rows="3" required>{{ unit.instagram_caption }}</textarea>
-            <div class="review-actions">
-              <button type="submit">문구 저장</button>
-            </div>
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>빠른 실행</h3>
+          <form method="post" action="/app/actions/generate" class="row-form">
+            <label>생성 날짜</label>
+            <input type="date" name="biz_date" value="{{ today }}" required />
+            <button type="submit">오늘 콘텐츠 생성</button>
           </form>
-          <div class="review-actions">
-            <form method="post" action="/app/actions/content/{{ unit.id }}/approve">
-              <button type="submit">승인</button>
-            </form>
-            <form method="post" action="/app/actions/content/{{ unit.id }}/reject">
-              <button type="submit" class="btn btn-reject">반려</button>
-            </form>
+          <form method="post" action="/app/actions/schedule" class="row-form">
+            <label>스케줄</label>
+            <input type="date" name="biz_date" value="{{ today }}" required />
+            <button type="submit">오늘 스케줄 생성</button>
+          </form>
+          <form method="post" action="/app/actions/bootstrap" class="row-form">
+            <label>부트스트랩</label>
+            <input type="date" name="biz_date" value="{{ today }}" required />
+            <button type="submit">생성+스케줄+큐</button>
+          </form>
+          <form method="post" action="/app/actions/dispatch" class="row-form">
+            <label>즉시 발행</label>
+            <input type="number" name="limit" value="20" min="1" max="100" />
+            <button type="submit">디스패치</button>
+          </form>
+          <div class="actions-inline">
+            <form method="post" action="/app/actions/improve-daily"><button type="submit">일간 개선</button></form>
+            <form method="post" action="/app/actions/improve-weekly"><button type="submit">주간 개선</button></form>
           </div>
         </article>
-      {% else %}
-        <p class="empty">검수 대기 항목이 없습니다.</p>
-      {% endfor %}
-      </div>
+
+        <article class="panel">
+          <h3>최근 7일 성과</h3>
+          <table>
+            <thead>
+              <tr><th>날짜</th><th>유닛</th><th>성공</th><th>실패</th><th>조회</th><th>좋아요</th></tr>
+            </thead>
+            <tbody>
+            {% for row in dashboard.last_7_days %}
+              <tr>
+                <td>{{ row.biz_date }}</td>
+                <td>{{ row.content_units }}</td>
+                <td>{{ row.jobs_success }}</td>
+                <td>{{ row.jobs_failed }}</td>
+                <td>{{ row.threads_views }}</td>
+                <td>{{ row.threads_likes }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
+    </section>
+
+    <section class="tab-pane" data-tab-pane="content">
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>초간단 시작 (1분)</h3>
+          <p class="inline-help">아래 3단계만 하면 오늘 게시 후보가 자동으로 만들어집니다.</p>
+          <div class="actions-inline">
+            <form method="post" action="/app/actions/trend-sync"><button type="submit">1) 인기 주제 가져오기</button></form>
+            <form method="post" action="/app/actions/generate"><input type="hidden" name="biz_date" value="{{ today }}" /><button type="submit">2) 오늘 글 자동 만들기</button></form>
+            <form method="post" action="/app/actions/schedule"><input type="hidden" name="biz_date" value="{{ today }}" /><button type="submit">3) 오늘 예약 만들기</button></form>
+          </div>
+
+          <h4>직접 주제 1개 추가 (선택)</h4>
+          <form method="post" action="/app/actions/add-seed-quick" class="stack-form">
+            <input name="keyword" placeholder="상품 키워드 (예: 에어프라이어)" required />
+            <input name="coupang_url" placeholder="쿠팡 링크(선택, 비우면 자동 검색 링크 생성)" />
+            <button type="submit">주제 추가하기</button>
+          </form>
+          <p class="inline-help">쿠팡 링크를 비우면, 키워드로 쿠팡 검색 링크를 자동 생성합니다.</p>
+
+          <details class="inline-help details-box">
+            <summary>고급 입력 (필요할 때만)</summary>
+            <form method="post" action="/app/actions/add-seed" class="stack-form mt-8">
+              <input name="topic" placeholder="게시글 주제 문장" required />
+              <input name="category" placeholder="카테고리(선택, 기본값: 일반)" />
+              <input name="source_url" placeholder="참고 링크(상품 URL 또는 검색 URL)" />
+              <div class="inline-grid">
+                <select name="source_type">
+                  <option value="PRODUCT_URL">상품 링크</option>
+                  <option value="SEARCH_URL">검색 링크</option>
+                </select>
+                <input type="number" name="priority" min="1" max="100" value="50" placeholder="우선순위(1~100)" />
+              </div>
+              <button type="submit">고급으로 저장</button>
+            </form>
+          </details>
+        </article>
+
+        <article class="panel">
+          <h3>오늘 콘텐츠 유닛</h3>
+          <p class="inline-help">여기에 오늘 생성된 게시 후보가 표시됩니다. 비어있으면 왼쪽 1~2단계를 먼저 누르세요.</p>
+          <form method="post" action="/app/actions/trend-sync" class="stack-form">
+            <button type="submit">인기 주제 다시 불러오기</button>
+          </form>
+          <div class="unit-list">
+          {% for unit in today_units %}
+            <article class="unit-item">
+              <div class="unit-top">
+                <span class="slot">slot {{ unit.slot_no }}</span>
+                <span class="state">{{ unit.generation_status }}</span>
+              </div>
+              <h4>{{ unit.topic }}</h4>
+              <p>{{ unit.category }}</p>
+              <small>{{ unit.scheduled_at }}</small>
+            </article>
+          {% else %}
+            <p class="empty">아직 생성된 유닛이 없습니다.</p>
+          {% endfor %}
+          </div>
+        </article>
+      </section>
+
+      <article class="panel">
+        <h3>검수 대기 콘텐츠</h3>
+        <p class="inline-help">문구/슬라이드 수정 후 승인하면 스케줄/큐 적재를 자동 시도합니다.</p>
+        <div class="review-list">
+        {% for unit in review_queue %}
+          <article class="review-item">
+            <div class="review-meta">
+              <strong>{{ unit.biz_date }} / slot {{ unit.slot_no }}</strong>
+              <span>{{ unit.topic }} · {{ unit.category }}</span>
+            </div>
+            <form method="post" action="/app/actions/content/{{ unit.id }}/update" class="review-form">
+              <label>Threads 본문</label>
+              <textarea name="threads_body" rows="4" required>{{ unit.threads_body }}</textarea>
+              <label>Threads 첫 댓글</label>
+              <textarea name="threads_first_reply" rows="2" required>{{ unit.threads_first_reply }}</textarea>
+              <label>Instagram 캡션</label>
+              <textarea name="instagram_caption" rows="3" required>{{ unit.instagram_caption }}</textarea>
+              <div class="inline-grid">
+                <div>
+                  <label>폰트 스타일</label>
+                  <select name="font_style">
+                    <option value="">기존 유지</option>
+                    <option value="sans">sans</option>
+                    <option value="serif">serif</option>
+                    <option value="mono">mono</option>
+                  </select>
+                </div>
+                <div>
+                  <label>배경 모드</label>
+                  <select name="background_mode">
+                    <option value="">기존 유지</option>
+                    <option value="stock">stock(API 이미지)</option>
+                    <option value="solid">solid(단색)</option>
+                  </select>
+                </div>
+              </div>
+              <label>슬라이드 JSON (4~7장)</label>
+              <textarea name="slide_script_json" rows="8">{{ unit.slide_script | tojson }}</textarea>
+              <div class="review-actions">
+                <button type="submit">문구 저장</button>
+              </div>
+            </form>
+            <div class="review-actions">
+              <form method="post" action="/app/actions/content/{{ unit.id }}/render">
+                <button type="submit">카드뉴스 생성/미리보기</button>
+              </form>
+            </div>
+            {% set previews = preview_map.get(unit.id, []) %}
+            {% if previews %}
+            <div class="preview-grid">
+              {% for url in previews %}
+              <a href="{{ url }}" target="_blank" rel="noopener noreferrer" class="preview-item">
+                <img src="{{ url }}" alt="slide preview" loading="lazy" />
+              </a>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="inline-help">아직 카드뉴스 이미지가 없습니다. 먼저 생성 버튼을 눌러주세요.</p>
+            {% endif %}
+            <div class="review-actions">
+              <form method="post" action="/app/actions/content/{{ unit.id }}/approve">
+                <button type="submit">승인</button>
+              </form>
+              <form method="post" action="/app/actions/content/{{ unit.id }}/reject">
+                <button type="submit" class="btn btn-reject">반려</button>
+              </form>
+            </div>
+          </article>
+        {% else %}
+          <p class="empty">검수 대기 항목이 없습니다.</p>
+        {% endfor %}
+        </div>
+      </article>
+    </section>
+
+    <section class="tab-pane" data-tab-pane="accounts">
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>계정 연동 (먼저 이거부터)</h3>
+          <div class="actions-inline">
+            <a class="btn btn-solid" href="/auth/connect/threads/start">Threads 연동</a>
+            <a class="btn btn-solid" href="/auth/connect/instagram/start">Instagram 연동</a>
+          </div>
+          <p class="inline-help">연동 후 아래 표에서 계정별 용도(쿠팡/사주)를 고르면 끝입니다.</p>
+          <details class="inline-help details-box">
+            <summary>토큰으로 수동 등록 (고급/문제 발생 시만)</summary>
+            <form method="post" action="/app/actions/add-threads-account" class="stack-form mt-8">
+              <h4>Threads</h4>
+              <input name="name" placeholder="계정명" required />
+              <input name="threads_user_id" placeholder="threads_user_id" required />
+              <input name="access_token" placeholder="access_token" required />
+              <button type="submit">Threads 저장</button>
+            </form>
+            <form method="post" action="/app/actions/add-instagram-account" class="stack-form">
+              <h4>Instagram</h4>
+              <input name="name" placeholder="계정명" required />
+              <input name="ig_user_id" placeholder="ig_user_id" required />
+              <input name="access_token" placeholder="access_token" required />
+              <button type="submit">Instagram 저장</button>
+            </form>
+          </details>
+        </article>
+      </section>
+
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>Threads 계정 + 용도 설정</h3>
+          <table>
+            <thead><tr><th>이름</th><th>User ID</th><th>용도 저장</th></tr></thead>
+            <tbody>
+              {% for acc in threads_accounts %}
+              <tr>
+                <td>{{ acc.name }}</td>
+                <td>{{ acc.threads_user_id }}</td>
+                <td>
+                  <form method="post" action="/app/actions/threads-accounts/{{ acc.id }}/profile" class="inline-form">
+                    <select name="brand_profile_id">
+                      <option value="">미지정</option>
+                      {% for profile in brand_profiles %}
+                      <option value="{{ profile.id }}" {% if acc.brand_profile_id == profile.id %}selected{% endif %}>{{ profile.name }} ({{ profile.vertical_type }})</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit">저장</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3">등록된 계정 없음</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+        <article class="panel">
+          <h3>Instagram 계정 + 용도 설정</h3>
+          <table>
+            <thead><tr><th>이름</th><th>User ID</th><th>용도 저장</th></tr></thead>
+            <tbody>
+              {% for acc in instagram_accounts %}
+              <tr>
+                <td>{{ acc.name }}</td>
+                <td>{{ acc.ig_user_id }}</td>
+                <td>
+                  <form method="post" action="/app/actions/instagram-accounts/{{ acc.id }}/profile" class="inline-form">
+                    <select name="brand_profile_id">
+                      <option value="">미지정</option>
+                      {% for profile in brand_profiles %}
+                      <option value="{{ profile.id }}" {% if acc.brand_profile_id == profile.id %}selected{% endif %}>{{ profile.name }} ({{ profile.vertical_type }})</option>
+                      {% endfor %}
+                    </select>
+                    <button type="submit">저장</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="3">등록된 계정 없음</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
+    </section>
+
+    <section class="tab-pane" data-tab-pane="engagement">
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>브랜드 프로필</h3>
+          <form method="post" action="/app/actions/add-brand-profile" class="stack-form">
+            <input name="name" placeholder="프로필명 (예: 쿠파스-기본)" required />
+            <select name="vertical_type" required>
+              <option value="COUPANG">COUPANG</option>
+              <option value="SAJU">SAJU</option>
+            </select>
+            <textarea name="comment_style_prompt" rows="3" placeholder="댓글/DM 말투 프롬프트"></textarea>
+            <button type="submit">브랜드 프로필 저장</button>
+          </form>
+          <table>
+            <thead><tr><th>이름</th><th>유형</th><th>활성</th></tr></thead>
+            <tbody>
+            {% for profile in brand_profiles %}
+              <tr><td>{{ profile.name }}</td><td>{{ profile.vertical_type }}</td><td>{{ profile.active }}</td></tr>
+            {% else %}
+              <tr><td colspan="3">등록된 프로필 없음</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h3>댓글 자동응답 실행</h3>
+          <form method="post" action="/app/actions/engagement-process" class="row-form row-form-4">
+            <label>즉시 실행</label>
+            <input type="number" name="limit_events" value="100" min="1" max="500" />
+            <input type="number" name="limit_jobs" value="100" min="1" max="500" />
+            <button type="submit">댓글자동화 실행</button>
+          </form>
+          <p class="inline-help">템플릿에 <code>&#123;&#123;AI_REPLY&#125;&#125;</code>를 넣으면 AI 한줄답변이 삽입됩니다.</p>
+          <form method="post" action="/app/actions/add-comment-rule" class="stack-form">
+            <select name="instagram_account_id" required>
+              {% for account in instagram_accounts %}
+              <option value="{{ account.id }}">{{ account.name }} ({{ account.ig_user_id }})</option>
+              {% endfor %}
+            </select>
+            <select name="brand_profile_id">
+              <option value="">브랜드프로필 미지정(계정 기본)</option>
+              {% for profile in brand_profiles %}
+              <option value="{{ profile.id }}">{{ profile.name }} ({{ profile.vertical_type }})</option>
+              {% endfor %}
+            </select>
+            <input name="name" placeholder="룰 이름" required />
+            <div class="inline-grid">
+              <select name="trigger_type">
+                <option value="KEYWORD">KEYWORD</option>
+                <option value="REGEX">REGEX</option>
+              </select>
+              <input name="trigger_value" placeholder="감자" required />
+            </div>
+            <div class="inline-grid">
+              <select name="action_type">
+                <option value="PRIVATE_REPLY">PRIVATE_REPLY</option>
+                <option value="PUBLIC_REPLY">PUBLIC_REPLY</option>
+              </select>
+              <input type="number" name="priority" value="100" min="1" max="1000" />
+            </div>
+            <input type="number" name="cooldown_minutes" value="60" min="0" max="1440" />
+            <textarea name="message_template" rows="3" placeholder="예: &#123;&#123;AI_REPLY&#125;&#125; 링크는 DM으로 보냈어요." required></textarea>
+            <label class="inline-help"><input type="checkbox" name="active" checked /> 활성화</label>
+            <button type="submit">댓글 룰 저장</button>
+          </form>
+        </article>
+      </section>
+
+      <article class="panel">
+        <h3>댓글 룰 관리 (수정/비활성/삭제)</h3>
+        <div class="rule-grid">
+        {% for rule in comment_rules %}
+          <article class="rule-card">
+            <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/update" class="stack-form">
+              <input name="name" value="{{ rule.name }}" required />
+              <div class="inline-grid">
+                <select name="trigger_type">
+                  <option value="KEYWORD" {% if rule.trigger_type.value == 'KEYWORD' %}selected{% endif %}>KEYWORD</option>
+                  <option value="REGEX" {% if rule.trigger_type.value == 'REGEX' %}selected{% endif %}>REGEX</option>
+                </select>
+                <input name="trigger_value" value="{{ rule.trigger_value }}" required />
+              </div>
+              <div class="inline-grid">
+                <select name="action_type">
+                  <option value="PRIVATE_REPLY" {% if rule.action_type.value == 'PRIVATE_REPLY' %}selected{% endif %}>PRIVATE_REPLY</option>
+                  <option value="PUBLIC_REPLY" {% if rule.action_type.value == 'PUBLIC_REPLY' %}selected{% endif %}>PUBLIC_REPLY</option>
+                </select>
+                <input type="number" name="priority" value="{{ rule.priority }}" min="1" max="1000" />
+              </div>
+              <div class="inline-grid">
+                <input type="number" name="cooldown_minutes" value="{{ rule.cooldown_minutes }}" min="0" max="1440" />
+                <select name="brand_profile_id">
+                  <option value="">브랜드프로필 미지정</option>
+                  {% for profile in brand_profiles %}
+                  <option value="{{ profile.id }}" {% if rule.brand_profile_id == profile.id %}selected{% endif %}>{{ profile.name }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <textarea name="message_template" rows="3" required>{{ rule.message_template }}</textarea>
+              <label class="inline-help">
+                <input type="checkbox" name="active" {% if rule.active %}checked{% endif %} /> 활성화
+              </label>
+              <div class="review-actions">
+                <button type="submit">룰 수정</button>
+              </div>
+            </form>
+            <div class="review-actions">
+              <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/toggle">
+                <input type="hidden" name="active" value="{{ 'false' if rule.active else 'true' }}" />
+                <button type="submit">{{ '비활성화' if rule.active else '활성화' }}</button>
+              </form>
+              <form method="post" action="/app/actions/comment-rules/{{ rule.id }}/delete">
+                <button type="submit" class="btn btn-reject">삭제</button>
+              </form>
+            </div>
+          </article>
+        {% else %}
+          <p class="empty">등록된 룰이 없습니다.</p>
+        {% endfor %}
+        </div>
+      </article>
+
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>최근 Comment Events</h3>
+          <table>
+            <thead><tr><th>시각</th><th>댓글</th><th>상태</th></tr></thead>
+            <tbody>
+            {% for event in recent_comment_events %}
+              <tr>
+                <td>{{ event.created_at }}</td>
+                <td>{{ event.comment_text }}</td>
+                <td>{{ event.status }}{% if event.status_reason %} ({{ event.status_reason }}){% endif %}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="3">수신 이벤트 없음</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h3>최근 Reply Jobs</h3>
+          <table>
+            <thead><tr><th>시각</th><th>타입</th><th>상태</th><th>재처리</th></tr></thead>
+            <tbody>
+            {% for job in recent_reply_jobs %}
+              <tr>
+                <td>{{ job.created_at }}</td>
+                <td>{{ job.action_type }}</td>
+                <td>{{ job.status }}{% if job.last_error_code %} ({{ job.last_error_code }}){% endif %}</td>
+                <td>
+                  {% if job.status.value in ['FAILED', 'SKIPPED'] %}
+                  <form method="post" action="/app/actions/reply-jobs/{{ job.id }}/retry">
+                    <button type="submit">재처리</button>
+                  </form>
+                  {% else %}
+                  -
+                  {% endif %}
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="4">응답 작업 없음</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
+    </section>
+
+    <section class="tab-pane" data-tab-pane="ops">
+      <section class="panel-grid">
+        <article class="panel">
+          <h3>발행 실패/재시도 잡</h3>
+          <table>
+            <thead><tr><th>ID</th><th>채널</th><th>상태</th><th>실패코드</th><th>재처리</th></tr></thead>
+            <tbody>
+            {% for job in failed_publish_jobs %}
+              <tr>
+                <td>{{ job.id }}</td>
+                <td>{{ job.channel }}</td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.last_error_code or '-' }}</td>
+                <td>
+                  <form method="post" action="/app/actions/jobs/{{ job.id }}/retry">
+                    <button type="submit">재시도</button>
+                  </form>
+                </td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5">실패/재시도 잡 없음</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </article>
+
+        <article class="panel">
+          <h3>최근 발행 잡</h3>
+          <table>
+            <thead><tr><th>ID</th><th>채널</th><th>상태</th><th>시도</th><th>다음재시도</th></tr></thead>
+            <tbody>
+            {% for job in recent_publish_jobs %}
+              <tr>
+                <td>{{ job.id }}</td>
+                <td>{{ job.channel }}</td>
+                <td>{{ job.status }}</td>
+                <td>{{ job.attempts }}/{{ job.max_attempts }}</td>
+                <td>{{ job.next_retry_at or '-' }}</td>
+              </tr>
+            {% else %}
+              <tr><td colspan="5">잡 없음</td></tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </article>
+      </section>
     </section>
   </main>
+
+  <script>
+    (function () {
+      const buttons = document.querySelectorAll("[data-tab-target]");
+      const panes = document.querySelectorAll("[data-tab-pane]");
+
+      function activate(tabId) {
+        buttons.forEach((btn) => {
+          btn.classList.toggle("is-active", btn.getAttribute("data-tab-target") === tabId);
+        });
+        panes.forEach((pane) => {
+          pane.classList.toggle("is-active", pane.getAttribute("data-tab-pane") === tabId);
+        });
+        window.localStorage.setItem("app_dashboard_tab", tabId);
+      }
+
+      buttons.forEach((btn) => {
+        btn.addEventListener("click", () => activate(btn.getAttribute("data-tab-target")));
+      });
+
+      const saved = window.localStorage.getItem("app_dashboard_tab");
+      if (saved && document.querySelector(`[data-tab-target="${saved}"]`)) {
+        activate(saved);
+      } else {
+        activate("overview");
+      }
+    })();
+  </script>
 </body>
 </html>

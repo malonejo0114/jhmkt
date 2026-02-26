@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from uuid import UUID
 
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
@@ -13,7 +14,6 @@ from app.services.generation_service import generate_today_content_units
 from app.services.scheduler_service import schedule_today_jobs
 from app.services.task_queue import enqueue_http_task
 from app.services.time_utils import kst_today
-from app.services.trend_service import sync_naver_trend_keywords
 
 
 def _queue_name(channel: ChannelType, job_type: JobType) -> str:
@@ -74,6 +74,42 @@ def enqueue_pending_jobs_for_date(db: Session, biz_date: date) -> dict[str, Any]
     }
 
 
+def enqueue_pending_jobs_for_units(db: Session, content_unit_ids: list[UUID]) -> dict[str, Any]:
+    if not content_unit_ids:
+        return {"pending_jobs": 0, "enqueued_jobs": 0, "skipped_jobs": 0}
+
+    jobs = (
+        db.execute(
+            select(PostJob)
+            .where(
+                and_(
+                    PostJob.content_unit_id.in_(content_unit_ids),
+                    PostJob.status.in_([JobStatus.PENDING, JobStatus.RETRYING]),
+                )
+            )
+            .order_by(PostJob.scheduled_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+
+    enqueued = 0
+    skipped = 0
+    for job in jobs:
+        if job.cloud_task_name:
+            skipped += 1
+            continue
+        enqueue_single_job(db, job)
+        enqueued += 1
+
+    db.commit()
+    return {
+        "pending_jobs": len(jobs),
+        "enqueued_jobs": enqueued,
+        "skipped_jobs": skipped,
+    }
+
+
 def enqueue_job_by_id(db: Session, job_id: int) -> str:
     job = db.get(PostJob, job_id)
     if not job:
@@ -87,11 +123,6 @@ def enqueue_job_by_id(db: Session, job_id: int) -> str:
 def run_daily_bootstrap(db: Session, biz_date: date | None = None) -> dict[str, Any]:
     settings = get_settings()
     target_date = biz_date or kst_today()
-    trend_result: dict[str, Any] = {"status": "SKIPPED"}
-    try:
-        trend_result = sync_naver_trend_keywords(db, target_date)
-    except Exception as exc:  # noqa: BLE001
-        trend_result = {"status": "FAILED", "reason": str(exc)}
 
     gen_result = generate_today_content_units(
         db,
@@ -103,7 +134,7 @@ def run_daily_bootstrap(db: Session, biz_date: date | None = None) -> dict[str, 
 
     return {
         "biz_date": target_date,
-        "trend": trend_result,
+        "trend": {"status": "REMOVED"},
         "generate": gen_result,
         "schedule": schedule_result,
         "queue": queue_result,

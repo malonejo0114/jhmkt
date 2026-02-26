@@ -18,12 +18,14 @@ class Settings(BaseSettings):
     token_encryption_key: str = Field(default="")
     session_secret: str = Field(default="dev-session-secret-change-this")
     internal_api_key: str = Field(default="")
+    cron_secret: str = Field(default="")
     run_mode: str = Field(default="mock")  # mock | live
     daily_unit_count: int = Field(default=3)
 
     disclosure_line: str = (
         "[광고] 이 포스팅은 쿠팡 파트너스 활동의 일환으로 수수료를 제공받을 수 있습니다."
     )
+    saju_disclosure_line: str = Field(default="[안내] 사주/운세 정보 제공 콘텐츠입니다.")
 
     cloud_tasks_enabled: bool = Field(default=False)
     cloud_tasks_project_id: str = Field(default="")
@@ -37,6 +39,10 @@ class Settings(BaseSettings):
     storage_mode: str = Field(default="local")  # local | gcs
     local_asset_dir: str = Field(default="./.local_assets")
     gcs_bucket: str = Field(default="")
+    pexels_api_key: str = Field(default="")
+    unsplash_access_key: str = Field(default="")
+    google_cse_api_key: str = Field(default="")
+    google_cse_cx: str = Field(default="")
 
     threads_api_base_url: str = Field(default="https://graph.threads.net")
     threads_api_version: str = Field(default="v1.0")
@@ -59,6 +65,14 @@ class Settings(BaseSettings):
 
     oauth_enabled: bool = Field(default=False)
     public_base_url: str = Field(default="http://localhost:8080")
+    meta_webhook_verify_token: str = Field(default="")
+    engagement_enabled: bool = Field(default=True)
+    engagement_ai_reply_enabled: bool = Field(default=False)
+    engagement_ai_reply_max_chars: int = Field(default=120)
+    private_reply_hourly_limit: int = Field(default=20)
+    private_reply_daily_limit: int = Field(default=100)
+    public_reply_hourly_limit: int = Field(default=30)
+    public_reply_daily_limit: int = Field(default=150)
     threads_app_id: str = Field(default="")
     threads_app_secret: str = Field(default="")
     instagram_app_id: str = Field(default="")

@@ -12,6 +12,10 @@ from app.schemas.internal import (
     ThreadsInsightsTaskRequest,
 )
 from app.services.improvement_service import run_daily_improvement, run_weekly_improvement
+from app.services.engagement_service import (
+    create_reply_jobs_for_pending_events,
+    process_pending_reply_jobs,
+)
 from app.services.internal_auth import verify_internal_key
 from app.services.job_execution_service import (
     dispatch_due_jobs_local,
@@ -23,7 +27,7 @@ from app.services.job_orchestrator import run_daily_bootstrap
 router = APIRouter(tags=["internal"], dependencies=[Depends(verify_internal_key)])
 
 
-@router.post("/cron/daily-bootstrap")
+@router.api_route("/cron/daily-bootstrap", methods=["GET", "POST"])
 def cron_daily_bootstrap(
     payload: DailyBootstrapRequest | None = Body(default=None),
     db: Session = Depends(get_db),
@@ -35,13 +39,13 @@ def cron_daily_bootstrap(
     return {"status": "ok", "result": result}
 
 
-@router.post("/cron/improve/daily")
+@router.api_route("/cron/improve/daily", methods=["GET", "POST"])
 def cron_improve_daily(db: Session = Depends(get_db)):
     result = run_daily_improvement(db)
     return {"status": "ok", "result": result}
 
 
-@router.post("/cron/improve/weekly")
+@router.api_route("/cron/improve/weekly", methods=["GET", "POST"])
 def cron_improve_weekly(db: Session = Depends(get_db)):
     result = run_weekly_improvement(db)
     return {"status": "ok", "result": result}
@@ -77,4 +81,24 @@ def task_collect_threads_insights(payload: ThreadsInsightsTaskRequest, db: Sessi
 @router.post("/tasks/local/dispatch-due")
 def task_dispatch_due_local(payload: DispatchDueJobsRequest, db: Session = Depends(get_db)):
     result = dispatch_due_jobs_local(db, limit=payload.limit)
+    return {"status": "ok", "result": result}
+
+
+@router.post("/tasks/engagement/process")
+def task_process_engagement(limit_events: int = 100, limit_jobs: int = 100, db: Session = Depends(get_db)):
+    queue_result = create_reply_jobs_for_pending_events(db, limit=limit_events)
+    send_result = process_pending_reply_jobs(db, limit=limit_jobs)
+    return {"status": "ok", "result": {"queue_result": queue_result, "send_result": send_result}}
+
+
+@router.api_route("/cron/engagement/process", methods=["GET", "POST"])
+def cron_process_engagement(limit_events: int = 100, limit_jobs: int = 100, db: Session = Depends(get_db)):
+    queue_result = create_reply_jobs_for_pending_events(db, limit=limit_events)
+    send_result = process_pending_reply_jobs(db, limit=limit_jobs)
+    return {"status": "ok", "result": {"queue_result": queue_result, "send_result": send_result}}
+
+
+@router.api_route("/cron/dispatch/due", methods=["GET", "POST"])
+def cron_dispatch_due(limit: int = 30, db: Session = Depends(get_db)):
+    result = dispatch_due_jobs_local(db, limit=limit)
     return {"status": "ok", "result": result}

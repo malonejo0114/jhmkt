@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from app.core.config import get_settings
 
@@ -36,3 +37,18 @@ def _save_to_gcs(content_unit_id: str, slide_no: int, image_bytes: bytes) -> str
     blob = bucket.blob(object_name)
     blob.upload_from_string(image_bytes, content_type="image/jpeg")
     return f"gs://{settings.gcs_bucket}/{object_name}"
+
+
+def asset_public_url(uri: str) -> str:
+    if uri.startswith("http://") or uri.startswith("https://"):
+        return uri
+    if uri.startswith("gs://"):
+        _, rest = uri.split("gs://", 1)
+        bucket, object_name = rest.split("/", 1)
+        return f"https://storage.googleapis.com/{bucket}/{object_name}"
+
+    # local file path -> app route
+    path = Path(uri).expanduser().resolve()
+    file_name = quote(path.name)
+    content_unit_id = quote(path.parent.name)
+    return f"/local-assets/{content_unit_id}/{file_name}"

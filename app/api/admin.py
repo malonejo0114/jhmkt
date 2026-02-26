@@ -14,6 +14,17 @@ from app.schemas.accounts import (
     ThreadsAccountCreate,
 )
 from app.schemas.dashboard import DashboardResponse
+from app.schemas.engagement import (
+    AssignBrandProfileRequest,
+    BrandProfileCreateRequest,
+    BrandProfileOut,
+    CommentEventOut,
+    CommentRuleCreateRequest,
+    CommentRuleOut,
+    CommentRuleToggleRequest,
+    CommentRuleUpdateRequest,
+    ReplyJobOut,
+)
 from app.schemas.generation import (
     EnqueueTodayRequest,
     EnqueueTodayResponse,
@@ -28,12 +39,29 @@ from app.schemas.seeds import SeedImportJsonBody, SeedImportResponse
 from app.schemas.trend import TrendSyncRequest, TrendSyncResponse
 from app.services.accounts_service import upsert_instagram_account, upsert_threads_account
 from app.services.dashboard_service import get_dashboard_last_7_days
+from app.services.engagement_service import (
+    assign_instagram_brand_profile,
+    create_brand_profile,
+    create_comment_rule,
+    create_reply_jobs_for_pending_events,
+    delete_comment_rule,
+    list_brand_profiles,
+    list_comment_events,
+    list_comment_rules,
+    list_reply_jobs,
+    process_pending_reply_jobs,
+    retry_reply_job,
+    set_comment_rule_active,
+    update_comment_rule,
+)
 from app.services.generation_service import generate_today_content_units
 from app.services.job_execution_service import dispatch_due_jobs_local
 from app.services.job_orchestrator import enqueue_job_by_id, enqueue_pending_jobs_for_date
 from app.services.jobs_service import RetryNotAllowedError, retry_job
 from app.services.scheduler_service import schedule_today_jobs
 from app.services.seeds_service import import_seed_items, parse_seed_csv
+from app.services.setup_service import get_setup_summary
+from app.services.internal_auth import verify_internal_key
 from app.services.review_service import (
     approve_and_prepare_publish,
     list_review_queue,
@@ -41,10 +69,14 @@ from app.services.review_service import (
     review_queue_summary,
     update_content_unit_copy,
 )
-from app.services.trend_service import sync_naver_trend_keywords
 from app.services.time_utils import kst_today
 
-router = APIRouter(prefix="/admin", tags=["admin"])
+router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(verify_internal_key)])
+
+
+@router.get("/setup/checklist")
+def admin_setup_checklist(db: Session = Depends(get_db)):
+    return get_setup_summary(db)
 
 
 @router.post("/accounts/threads", response_model=AccountCreateResponse, status_code=status.HTTP_201_CREATED)
@@ -71,6 +103,111 @@ def create_instagram_account(payload: InstagramAccountCreate, db: Session = Depe
             status=account.status,
         )
     )
+
+
+@router.post("/brand-profiles", response_model=BrandProfileOut, status_code=status.HTTP_201_CREATED)
+def admin_create_brand_profile(payload: BrandProfileCreateRequest, db: Session = Depends(get_db)):
+    try:
+        profile = create_brand_profile(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return BrandProfileOut.model_validate(profile)
+
+
+@router.get("/brand-profiles", response_model=list[BrandProfileOut])
+def admin_list_brand_profiles(db: Session = Depends(get_db)):
+    return [BrandProfileOut.model_validate(item) for item in list_brand_profiles(db)]
+
+
+@router.post("/instagram-accounts/{account_id}/brand-profile")
+def admin_assign_brand_profile(
+    account_id: UUID,
+    payload: AssignBrandProfileRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        account = assign_instagram_brand_profile(db, account_id, payload.brand_profile_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"instagram_account_id": str(account.id), "brand_profile_id": str(account.brand_profile_id)}
+
+
+@router.post("/comment-rules", response_model=CommentRuleOut, status_code=status.HTTP_201_CREATED)
+def admin_create_comment_rule(payload: CommentRuleCreateRequest, db: Session = Depends(get_db)):
+    try:
+        rule = create_comment_rule(db, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CommentRuleOut.model_validate(rule)
+
+
+@router.get("/comment-rules", response_model=list[CommentRuleOut])
+def admin_list_comment_rules(instagram_account_id: UUID | None = None, db: Session = Depends(get_db)):
+    rules = list_comment_rules(db, instagram_account_id=instagram_account_id)
+    return [CommentRuleOut.model_validate(item) for item in rules]
+
+
+@router.put("/comment-rules/{rule_id}", response_model=CommentRuleOut)
+def admin_update_comment_rule(
+    rule_id: UUID,
+    payload: CommentRuleUpdateRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        rule = update_comment_rule(db, rule_id, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CommentRuleOut.model_validate(rule)
+
+
+@router.post("/comment-rules/{rule_id}/toggle", response_model=CommentRuleOut)
+def admin_toggle_comment_rule(
+    rule_id: UUID,
+    payload: CommentRuleToggleRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        rule = set_comment_rule_active(db, rule_id, payload.active)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CommentRuleOut.model_validate(rule)
+
+
+@router.delete("/comment-rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def admin_delete_comment_rule(rule_id: UUID, db: Session = Depends(get_db)):
+    try:
+        delete_comment_rule(db, rule_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return None
+
+
+@router.get("/engagement/comment-events", response_model=list[CommentEventOut])
+def admin_list_comment_events(limit: int = 100, db: Session = Depends(get_db)):
+    events = list_comment_events(db, limit=limit)
+    return [CommentEventOut.model_validate(item) for item in events]
+
+
+@router.get("/engagement/reply-jobs", response_model=list[ReplyJobOut])
+def admin_list_reply_jobs(limit: int = 100, db: Session = Depends(get_db)):
+    jobs = list_reply_jobs(db, limit=limit)
+    return [ReplyJobOut.model_validate(item) for item in jobs]
+
+
+@router.post("/engagement/reply-jobs/{reply_job_id}/retry", response_model=ReplyJobOut)
+def admin_retry_reply_job(reply_job_id: UUID, db: Session = Depends(get_db)):
+    try:
+        job = retry_reply_job(db, reply_job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ReplyJobOut.model_validate(job)
+
+
+@router.post("/engagement/process")
+def admin_process_engagement(limit_events: int = 100, limit_jobs: int = 100, db: Session = Depends(get_db)):
+    queue_result = create_reply_jobs_for_pending_events(db, limit=limit_events)
+    send_result = process_pending_reply_jobs(db, limit=limit_jobs)
+    return {"queue_result": queue_result, "send_result": send_result}
 
 
 @router.post("/seeds/import", response_model=SeedImportResponse)
@@ -168,13 +305,14 @@ def get_dashboard(db: Session = Depends(get_db)):
 
 @router.post("/trends/naver/sync", response_model=TrendSyncResponse)
 def sync_naver_trends(payload: TrendSyncRequest, db: Session = Depends(get_db)):
-    try:
-        result = sync_naver_trend_keywords(db, payload.biz_date)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return TrendSyncResponse(**result)
+    _ = db
+    return TrendSyncResponse(
+        status="REMOVED",
+        biz_date=payload.biz_date.isoformat() if payload.biz_date else None,
+        imported=0,
+        top_keywords=[],
+        reason="네이버 트렌드 기능은 배포 전 제거되었습니다.",
+    )
 
 
 @router.get("/review/queue")
@@ -218,6 +356,10 @@ def update_content(content_unit_id: UUID, payload: ContentReviewUpdateRequest, d
             threads_body=payload.threads_body,
             threads_first_reply=payload.threads_first_reply,
             instagram_caption=payload.instagram_caption,
+            slide_script=payload.slide_script,
+            font_style=payload.font_style,
+            background_mode=payload.background_mode,
+            template_style=payload.template_style,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -15,7 +16,6 @@ from app.models import (
     JobStatus,
     JobType,
     PostJob,
-    ReviewStatus,
     ThreadsAccount,
 )
 from app.services.hash_utils import sha256_hex
@@ -53,17 +53,33 @@ def _idempotency_key(
     return sha256_hex(raw)
 
 
-def schedule_today_jobs(db: Session, biz_date: date) -> dict[str, Any]:
+def schedule_today_jobs(
+    db: Session,
+    biz_date: date,
+    *,
+    threads_account_id: UUID | None = None,
+    instagram_account_id: UUID | None = None,
+    content_unit_ids: list[UUID] | None = None,
+) -> dict[str, Any]:
+    conditions = [
+        ContentUnit.biz_date == biz_date,
+        ContentUnit.generation_status == ContentStatus.READY,
+        ContentUnit.guardrail_passed.is_(True),
+        or_(
+            ContentUnit.threads_review_status == "APPROVED",
+            ContentUnit.instagram_review_status == "APPROVED",
+        ),
+    ]
+    if threads_account_id is not None:
+        conditions.append(ContentUnit.threads_account_id == threads_account_id)
+    if instagram_account_id is not None:
+        conditions.append(ContentUnit.instagram_account_id == instagram_account_id)
+    if content_unit_ids:
+        conditions.append(ContentUnit.id.in_(content_unit_ids))
+
     units = (
         db.execute(
-            select(ContentUnit)
-            .where(
-                ContentUnit.biz_date == biz_date,
-                ContentUnit.generation_status == ContentStatus.READY,
-                ContentUnit.guardrail_passed.is_(True),
-                ContentUnit.review_status == ReviewStatus.APPROVED,
-            )
-            .order_by(ContentUnit.slot_no.asc())
+            select(ContentUnit).where(and_(*conditions)).order_by(ContentUnit.slot_no.asc())
         )
         .scalars()
         .all()
@@ -78,45 +94,80 @@ def schedule_today_jobs(db: Session, biz_date: date) -> dict[str, Any]:
             "skipped_jobs": 0,
         }
 
-    threads_accounts = (
-        db.execute(
-            select(ThreadsAccount)
-            .where(ThreadsAccount.status == AccountStatus.ACTIVE)
-            .order_by(ThreadsAccount.created_at.asc())
-        )
-        .scalars()
-        .all()
-    )
-    instagram_account = (
-        db.execute(
-            select(InstagramAccount)
-            .where(InstagramAccount.status == AccountStatus.ACTIVE)
-            .order_by(InstagramAccount.created_at.asc())
-            .limit(1)
-        )
-        .scalars()
-        .first()
-    )
+    threads_accounts: list[ThreadsAccount] = []
+    selected_threads: ThreadsAccount | None = None
+    if threads_account_id is not None:
+        selected_threads = db.get(ThreadsAccount, threads_account_id)
+        if not selected_threads or selected_threads.status != AccountStatus.ACTIVE:
+            raise ValueError("선택한 Threads 계정이 활성 상태가 아닙니다.")
 
-    if not threads_accounts:
-        raise ValueError("활성 Threads 계정이 없습니다.")
-    if not instagram_account:
-        raise ValueError("활성 Instagram 계정이 없습니다.")
+    selected_instagram: InstagramAccount | None = None
+    if instagram_account_id is not None:
+        selected_instagram = db.get(InstagramAccount, instagram_account_id)
+        if not selected_instagram or selected_instagram.status != AccountStatus.ACTIVE:
+            raise ValueError("선택한 Instagram 계정이 활성 상태가 아닙니다.")
 
     slot_times = _compute_slot_datetimes(biz_date, len(units))
 
     created_jobs = 0
     skipped_jobs = 0
+    scheduled_units = 0
+    rr_idx = 0
 
     for idx, unit in enumerate(units):
         if unit.scheduled_at is None:
             unit.scheduled_at = slot_times[idx]
 
-        threads_account = threads_accounts[idx % len(threads_accounts)]
-        plan = [
-            (ChannelType.THREADS, JobType.THREADS_ROOT, threads_account.id),
-            (ChannelType.INSTAGRAM, JobType.INSTAGRAM_CAROUSEL, instagram_account.id),
-        ]
+        plan: list[tuple[ChannelType, JobType, UUID]] = []
+
+        if unit.threads_review_status == "APPROVED":
+            if unit.threads_account_id is not None:
+                threads_account = db.get(ThreadsAccount, unit.threads_account_id)
+                if not threads_account or threads_account.status != AccountStatus.ACTIVE:
+                    raise ValueError("콘텐츠 유닛에 연결된 Threads 계정이 비활성 상태입니다.")
+            elif selected_threads is not None:
+                threads_account = selected_threads
+            else:
+                if not threads_accounts:
+                    threads_accounts = (
+                        db.execute(
+                            select(ThreadsAccount)
+                            .where(ThreadsAccount.status == AccountStatus.ACTIVE)
+                            .order_by(ThreadsAccount.created_at.asc())
+                        )
+                        .scalars()
+                        .all()
+                    )
+                if not threads_accounts:
+                    raise ValueError("활성 Threads 계정이 없습니다.")
+                threads_account = threads_accounts[rr_idx % len(threads_accounts)]
+                rr_idx += 1
+            plan.append((ChannelType.THREADS, JobType.THREADS_ROOT, threads_account.id))
+
+        if unit.instagram_review_status == "APPROVED":
+            if unit.instagram_account_id is not None:
+                unit_ig_account = db.get(InstagramAccount, unit.instagram_account_id)
+                if not unit_ig_account or unit_ig_account.status != AccountStatus.ACTIVE:
+                    raise ValueError("콘텐츠 유닛에 연결된 Instagram 계정이 비활성 상태입니다.")
+            elif selected_instagram is not None:
+                unit_ig_account = selected_instagram
+            else:
+                unit_ig_account = (
+                    db.execute(
+                        select(InstagramAccount)
+                        .where(InstagramAccount.status == AccountStatus.ACTIVE)
+                        .order_by(InstagramAccount.created_at.asc())
+                        .limit(1)
+                    )
+                    .scalars()
+                    .first()
+                )
+                if not unit_ig_account:
+                    raise ValueError("활성 Instagram 계정이 없습니다.")
+            plan.append((ChannelType.INSTAGRAM, JobType.INSTAGRAM_CAROUSEL, unit_ig_account.id))
+
+        if plan:
+            scheduled_units += 1
 
         for channel, job_type, account_id in plan:
             existing_job = (
@@ -159,7 +210,7 @@ def schedule_today_jobs(db: Session, biz_date: date) -> dict[str, Any]:
     return {
         "biz_date": biz_date,
         "total_units": len(units),
-        "scheduled_units": len(units),
+        "scheduled_units": scheduled_units,
         "created_jobs": created_jobs,
         "skipped_jobs": skipped_jobs,
     }

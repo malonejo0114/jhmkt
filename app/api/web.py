@@ -92,6 +92,7 @@ from app.services.publisher_service import publish_threads_manual_post
 from app.services.setup_service import get_setup_summary
 from app.services.saju_manseryeok_service import (
     BirthInfoPartial,
+    build_four_pillars_details,
     build_saju_topic_fallback,
     calculate_four_pillars,
     infer_saju_topic,
@@ -585,6 +586,7 @@ def app_account_workspace(
                     "pillars_kor": pillars.korean_string(),
                     "pillars_hanja": pillars.hanja_string(),
                     "pillar_cells": pillar_cells,
+                    "details": build_four_pillars_details(pillars),
                     "one_line": one_line,
                 }
             except Exception as exc:  # noqa: BLE001

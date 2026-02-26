@@ -256,6 +256,84 @@ MONTH_BRANCHES = {
     12: "축",
 }
 
+STEM_ELEMENT = {
+    "갑": "목",
+    "을": "목",
+    "병": "화",
+    "정": "화",
+    "무": "토",
+    "기": "토",
+    "경": "금",
+    "신": "금",
+    "임": "수",
+    "계": "수",
+}
+
+STEM_YINYANG = {
+    "갑": "양",
+    "을": "음",
+    "병": "양",
+    "정": "음",
+    "무": "양",
+    "기": "음",
+    "경": "양",
+    "신": "음",
+    "임": "양",
+    "계": "음",
+}
+
+BRANCH_MAIN_ELEMENT = {
+    "자": "수",
+    "축": "토",
+    "인": "목",
+    "묘": "목",
+    "진": "토",
+    "사": "화",
+    "오": "화",
+    "미": "토",
+    "신": "금",
+    "유": "금",
+    "술": "토",
+    "해": "수",
+}
+
+BRANCH_YINYANG = {
+    "자": "양",
+    "축": "음",
+    "인": "양",
+    "묘": "음",
+    "진": "양",
+    "사": "음",
+    "오": "양",
+    "미": "음",
+    "신": "양",
+    "유": "음",
+    "술": "양",
+    "해": "음",
+}
+
+BRANCH_HIDDEN_STEMS = {
+    "자": ["계"],
+    "축": ["기", "계", "신"],
+    "인": ["갑", "병", "무"],
+    "묘": ["을"],
+    "진": ["무", "을", "계"],
+    "사": ["병", "무", "경"],
+    "오": ["정", "기"],
+    "미": ["기", "을", "정"],
+    "신": ["경", "임", "무"],
+    "유": ["신"],
+    "술": ["무", "신", "정"],
+    "해": ["임", "갑"],
+}
+
+ELEMENT_ORDER = ["목", "화", "토", "금", "수"]
+ELEMENT_GENERATES = {"목": "화", "화": "토", "토": "금", "금": "수", "수": "목"}
+ELEMENT_CONTROLS = {"목": "토", "토": "수", "수": "화", "화": "금", "금": "목"}
+HEAVENLY_STEM_HAP = {frozenset({"갑", "기"}), frozenset({"을", "경"}), frozenset({"병", "신"}), frozenset({"정", "임"}), frozenset({"무", "계"})}
+EARTHLY_BRANCH_HAP = {frozenset({"자", "축"}), frozenset({"인", "해"}), frozenset({"묘", "술"}), frozenset({"진", "유"}), frozenset({"사", "신"}), frozenset({"오", "미"})}
+EARTHLY_BRANCH_CHUNG = {frozenset({"자", "오"}), frozenset({"축", "미"}), frozenset({"인", "신"}), frozenset({"묘", "유"}), frozenset({"진", "술"}), frozenset({"사", "해"})}
+
 SHICHEN_HOUR_MAP = {
     "자시": 23,
     "축시": 1,
@@ -332,6 +410,14 @@ class FourPillarsResult:
     day_hanja: str
     hour_hanja: str
     hour_known: bool = True
+    year_stem: str = ""
+    year_branch: str = ""
+    month_stem: str = ""
+    month_branch: str = ""
+    day_stem: str = ""
+    day_branch: str = ""
+    hour_stem: str | None = None
+    hour_branch: str | None = None
 
     def korean_string(self) -> str:
         if self.hour_known:
@@ -510,6 +596,14 @@ def calculate_four_pillars(birth: BirthInfoPartial, *, allow_unknown_hour: bool 
             else hour_hanja
         ),
         hour_known=hour_known,
+        year_stem=year_stem,
+        year_branch=year_branch,
+        month_stem=month_stem,
+        month_branch=month_branch,
+        day_stem=day_stem,
+        day_branch=day_branch,
+        hour_stem=(hour_stem if hour_known else None),
+        hour_branch=(hour_branch if hour_known else None),
     )
 
 
@@ -711,6 +805,147 @@ def summarize_birth_info(info: BirthInfoPartial) -> str:
 
 def list_missing_birth_fields(info: BirthInfoPartial) -> list[str]:
     return _missing_fields(info)
+
+
+def _stem_hanja(stem: str) -> str:
+    return HEAVENLY_STEMS_HANJA[HEAVENLY_STEMS.index(stem)]
+
+
+def _branch_hanja(branch: str) -> str:
+    return EARTHLY_BRANCHES_HANJA[EARTHLY_BRANCHES.index(branch)]
+
+
+def _ten_god(day_stem: str, target_stem: str) -> str:
+    day_element = STEM_ELEMENT[day_stem]
+    target_element = STEM_ELEMENT[target_stem]
+    same_polarity = STEM_YINYANG[day_stem] == STEM_YINYANG[target_stem]
+
+    if target_element == day_element:
+        return "비견" if same_polarity else "겁재"
+    if ELEMENT_GENERATES[day_element] == target_element:
+        return "식신" if same_polarity else "상관"
+    if ELEMENT_CONTROLS[day_element] == target_element:
+        return "편재" if same_polarity else "정재"
+    if ELEMENT_GENERATES[target_element] == day_element:
+        return "편인" if same_polarity else "정인"
+    if ELEMENT_CONTROLS[target_element] == day_element:
+        return "편관" if same_polarity else "정관"
+    return "-"
+
+
+def _describe_branch_hidden_stems(day_stem: str, branch: str) -> list[dict[str, str]]:
+    stems = BRANCH_HIDDEN_STEMS.get(branch, [])
+    result: list[dict[str, str]] = []
+    for stem in stems:
+        result.append(
+            {
+                "stem": stem,
+                "hanja": _stem_hanja(stem),
+                "element": STEM_ELEMENT[stem],
+                "ten_god": _ten_god(day_stem, stem),
+            }
+        )
+    return result
+
+
+def _find_stem_relations(stems: list[str]) -> list[str]:
+    items: list[str] = []
+    for i in range(len(stems)):
+        for j in range(i + 1, len(stems)):
+            pair = frozenset({stems[i], stems[j]})
+            if pair in HEAVENLY_STEM_HAP:
+                items.append(f"{stems[i]}-{stems[j]} 합")
+    return items
+
+
+def _find_branch_relations(branches: list[str]) -> list[str]:
+    items: list[str] = []
+    for i in range(len(branches)):
+        for j in range(i + 1, len(branches)):
+            pair = frozenset({branches[i], branches[j]})
+            if pair in EARTHLY_BRANCH_HAP:
+                items.append(f"{branches[i]}-{branches[j]} 합")
+            if pair in EARTHLY_BRANCH_CHUNG:
+                items.append(f"{branches[i]}-{branches[j]} 충")
+    return items
+
+
+def build_four_pillars_details(pillars: FourPillarsResult) -> dict[str, object]:
+    day_stem = pillars.day_stem
+    columns_meta = [
+        ("시", pillars.hour_stem, pillars.hour_branch, pillars.hour_known),
+        ("일", pillars.day_stem, pillars.day_branch, True),
+        ("월", pillars.month_stem, pillars.month_branch, True),
+        ("년", pillars.year_stem, pillars.year_branch, True),
+    ]
+
+    columns: list[dict[str, object]] = []
+    visible_stems: list[str] = []
+    visible_branches: list[str] = []
+    element_counts = {element: 0 for element in ELEMENT_ORDER}
+    yin_count = 0
+    yang_count = 0
+
+    for label, stem, branch, known in columns_meta:
+        if known and stem and branch:
+            stem_hanja = _stem_hanja(stem)
+            branch_hanja = _branch_hanja(branch)
+            stem_element = STEM_ELEMENT[stem]
+            branch_element = BRANCH_MAIN_ELEMENT[branch]
+            stem_yinyang = STEM_YINYANG[stem]
+            branch_yinyang = BRANCH_YINYANG[branch]
+            stem_ten_god = "-" if label == "일" else _ten_god(day_stem, stem)
+            hidden_stems = _describe_branch_hidden_stems(day_stem, branch)
+
+            visible_stems.append(stem)
+            visible_branches.append(branch)
+            element_counts[stem_element] += 1
+            element_counts[branch_element] += 1
+            yin_count += 1 if stem_yinyang == "음" else 0
+            yang_count += 1 if stem_yinyang == "양" else 0
+            yin_count += 1 if branch_yinyang == "음" else 0
+            yang_count += 1 if branch_yinyang == "양" else 0
+        else:
+            stem_hanja = "-"
+            branch_hanja = "-"
+            stem_element = "-"
+            branch_element = "-"
+            stem_yinyang = "-"
+            branch_yinyang = "-"
+            stem_ten_god = "-"
+            hidden_stems = []
+
+        columns.append(
+            {
+                "label": label,
+                "known": known,
+                "stem": stem if stem else "미상",
+                "stem_hanja": stem_hanja,
+                "stem_element": stem_element,
+                "stem_yinyang": stem_yinyang,
+                "stem_ten_god": stem_ten_god,
+                "branch": branch if branch else "미상",
+                "branch_hanja": branch_hanja,
+                "branch_element": branch_element,
+                "branch_yinyang": branch_yinyang,
+                "hidden_stems": hidden_stems,
+            }
+        )
+
+    return {
+        "day_master": {
+            "stem": day_stem,
+            "hanja": _stem_hanja(day_stem),
+            "element": STEM_ELEMENT[day_stem],
+            "yinyang": STEM_YINYANG[day_stem],
+        },
+        "columns": columns,
+        "element_counts": [{"element": element, "count": element_counts[element]} for element in ELEMENT_ORDER],
+        "yin_count": yin_count,
+        "yang_count": yang_count,
+        "stem_relations": _find_stem_relations(visible_stems),
+        "branch_relations": _find_branch_relations(visible_branches),
+    }
 
 
 def build_saju_reply_context(current_text: str, history_texts: list[str]) -> SajuReplyContext:

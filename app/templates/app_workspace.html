@@ -545,6 +545,51 @@
         <p><strong>사주(한글):</strong> {{ saju_preview.pillars_kor }}</p>
         <p><strong>사주(한자):</strong> {{ saju_preview.pillars_hanja }}</p>
         <p><strong>1줄 해석:</strong> {{ saju_preview.one_line }}</p>
+        {% if saju_preview.details %}
+        <h4>상세 만세력</h4>
+        <p>
+          <strong>일간:</strong>
+          {{ saju_preview.details.day_master.stem }}({{ saju_preview.details.day_master.hanja }}) /
+          {{ saju_preview.details.day_master.element }} /
+          {{ saju_preview.details.day_master.yinyang }}
+        </p>
+        <div class="mono-chip-row">
+          {% for item in saju_preview.details.element_counts %}
+          <span class="mono-chip">{{ item.element }} {{ item.count }}</span>
+          {% endfor %}
+          <span class="mono-chip">양 {{ saju_preview.details.yang_count }}</span>
+          <span class="mono-chip">음 {{ saju_preview.details.yin_count }}</span>
+        </div>
+        <table class="mono-table mono-saju-detail-table">
+          <thead>
+            <tr><th>기둥</th><th>천간</th><th>십성(일간기준)</th><th>지지</th><th>지장간</th><th>오행</th></tr>
+          </thead>
+          <tbody>
+            {% for col in saju_preview.details.columns %}
+            <tr>
+              <td>{{ col.label }}</td>
+              <td>{{ col.stem }} ({{ col.stem_hanja }})</td>
+              <td>{{ col.stem_ten_god }}</td>
+              <td>{{ col.branch }} ({{ col.branch_hanja }})</td>
+              <td>
+                {% if col.hidden_stems %}
+                  {% for hs in col.hidden_stems %}
+                  <span>{{ hs.stem }}({{ hs.hanja }}) {{ hs.ten_god }}</span>{% if not loop.last %}, {% endif %}
+                  {% endfor %}
+                {% else %}
+                  -
+                {% endif %}
+              </td>
+              <td>
+                천간 {{ col.stem_element }} / 지지 {{ col.branch_element }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <p><strong>천간 합:</strong> {{ saju_preview.details.stem_relations | join(', ') if saju_preview.details.stem_relations else '없음' }}</p>
+        <p><strong>지지 합/충:</strong> {{ saju_preview.details.branch_relations | join(', ') if saju_preview.details.branch_relations else '없음' }}</p>
+        {% endif %}
         {% else %}
         <p class="mono-empty">왼쪽에서 생년월일/생시를 입력하면 여기에 결과가 표시됩니다.</p>
         {% endif %}

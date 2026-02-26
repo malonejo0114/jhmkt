@@ -24,6 +24,7 @@ from app.services.exceptions import PermanentPublishError, TransientPublishError
 from app.services.hash_utils import sha256_hex
 from app.services.publisher_service import list_threads_comments, send_threads_comment_reply
 from app.services.retry_policy import next_retry_at
+from app.services.saju_manseryeok_service import build_saju_reply_context
 
 
 def ensure_threads_engagement_tables(db: Session) -> None:
@@ -61,18 +62,90 @@ def _resolve_threads_style_prompt(db: Session, account: ThreadsAccount) -> str:
     return ""
 
 
+def _load_related_user_history_texts(
+    db: Session,
+    event: ThreadsCommentEvent,
+    *,
+    limit: int = 50,
+) -> list[str]:
+    user_filters = []
+    if event.external_from_id:
+        user_filters.append(ThreadsCommentEvent.external_from_id == event.external_from_id)
+    if event.external_from_username:
+        user_filters.append(ThreadsCommentEvent.external_from_username == event.external_from_username)
+    if not user_filters:
+        return []
+
+    where_filters = [
+        ThreadsCommentEvent.threads_account_id == event.threads_account_id,
+        ThreadsCommentEvent.id != event.id,
+        or_(*user_filters),
+    ]
+    if event.external_media_id:
+        where_filters.append(ThreadsCommentEvent.external_media_id == event.external_media_id)
+
+    return [
+        str(text).strip()
+        for text in db.execute(
+            select(ThreadsCommentEvent.reply_text)
+            .where(and_(*where_filters))
+            .order_by(ThreadsCommentEvent.created_at.asc())
+            .limit(max(1, min(limit, 200)))
+        ).scalars()
+        if str(text).strip()
+    ]
+
+
 def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: ThreadsCommentEvent) -> str:
     settings = get_settings()
-    fallback = "댓글 감사합니다. 생년월일(양력)과 태어난 시간을 알려주시면 더 정확히 안내드릴게요."
-    if not settings.engagement_ai_reply_enabled:
+    fallback = "댓글 감사합니다. 생년월일(양력)과 태어난 시간을 알려주시면 만세력 기준으로 답변드릴게요."
+    style_prompt = _resolve_threads_style_prompt(db, account)
+
+    history_texts = _load_related_user_history_texts(db, event)
+    saju_ctx = build_saju_reply_context(event.reply_text or "", history_texts)
+    if saju_ctx.error_message:
+        return saju_ctx.error_message
+
+    if saju_ctx.has_birth_hint and not saju_ctx.is_complete:
+        if saju_ctx.missing_fields:
+            missing = ", ".join(saju_ctx.missing_fields)
+            return f"좋아요. {missing} 알려주시면 만세력 기준으로 한 줄로 답해드릴게요."
         return fallback
 
-    style_prompt = _resolve_threads_style_prompt(db, account)
+    if saju_ctx.is_complete and saju_ctx.four_pillars:
+        question = saju_ctx.question_text or "추가 질문 없음"
+        pillars_kor = saju_ctx.four_pillars.korean_string()
+        pillars_hanja = saju_ctx.four_pillars.hanja_string()
+        saju_style = (
+            f"{style_prompt}\n" if style_prompt else ""
+        ) + (
+            "만세력 기반 한 줄 답변. 단정/공포 조장 금지, 실천 팁 중심.\n"
+            f"출생정보: {saju_ctx.birth_summary}\n"
+            f"사주(한글): {pillars_kor}\n"
+            f"사주(한자): {pillars_hanja}\n"
+            f"질문: {question}"
+        )
+        answer_fallback = f"{pillars_kor} 기준으로 보면 오늘은 무리한 결정보다 순서 정리가 유리합니다."
+        if not settings.engagement_ai_reply_enabled:
+            return answer_fallback
+        return (
+            generate_comment_reply(
+                comment_text=question,
+                keyword="threads_saju_comment",
+                style_prompt=saju_style,
+                fallback_reply=answer_fallback,
+                max_chars=settings.engagement_ai_reply_max_chars,
+            ).strip()
+            or answer_fallback
+        )
+
     style_prompt = (
         f"{style_prompt}\n한 줄로 간결하게 답변하고, 사주 질문이면 생년월일(양력)과 생시를 요청하세요."
         if style_prompt
         else "친절하고 간결한 한 줄 답변. 사주 질문이면 생년월일(양력)과 생시를 요청."
     )
+    if not settings.engagement_ai_reply_enabled:
+        return fallback
     reply = generate_comment_reply(
         comment_text=event.reply_text or "",
         keyword="threads_comment",

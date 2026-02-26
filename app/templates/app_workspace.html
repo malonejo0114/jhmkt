@@ -387,6 +387,17 @@
         {% if not threads_engagement_available %}
         <p class="mono-empty">{{ threads_engagement_error or '스레드 댓글 기능을 불러오지 못했습니다.' }}</p>
         {% else %}
+        <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comment-style/save" class="mono-form">
+          {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
+          <input type="hidden" name="biz_date" value="{{ today }}" />
+          <label>댓글 자동답글 AI 프롬프트</label>
+          <textarea name="comment_style_prompt" rows="3" placeholder="예: 친근한 반말, 1문장, 질문 주제 먼저 언급, 과장 금지">{{ threads_comment_style_prompt }}</textarea>
+          <p class="mono-help">
+            저장 프로필: {{ threads_comment_profile_name or '없음(저장 시 자동 생성)' }} / 스레드 댓글 AI 답변 스타일에 즉시 반영됩니다.
+          </p>
+          <button type="submit" class="mono-btn mono-btn-outline">댓글 AI 프롬프트 저장</button>
+        </form>
+
         <form method="post" action="/app/accounts/{{ threads_account.id }}/threads/comments/process" class="mono-form js-single-submit">
           {% if selected_ig %}<input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />{% endif %}
           <input type="hidden" name="biz_date" value="{{ today }}" />

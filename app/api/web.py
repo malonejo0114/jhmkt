@@ -21,6 +21,7 @@ from app.db import get_db
 from app.models import (
     AccountStatus,
     AppUser,
+    BrandProfile,
     BrandVertical,
     ChannelType,
     CommentActionType,
@@ -210,6 +211,37 @@ def _format_kst_datetime(value: datetime | None) -> str:
     return value.astimezone(KST).strftime("%Y-%m-%d %H:%M KST")
 
 
+def _ensure_threads_comment_profile(db: Session, account: ThreadsAccount) -> BrandProfile:
+    profile = db.get(BrandProfile, account.brand_profile_id) if account.brand_profile_id else None
+    if profile:
+        shared_count = (
+            db.execute(
+                select(func.count(ThreadsAccount.id)).where(ThreadsAccount.brand_profile_id == profile.id)
+            ).scalar()
+            or 0
+        )
+        if shared_count <= 1 and not profile.name.startswith("default-"):
+            return profile
+
+    if profile:
+        vertical = profile.vertical_type
+        existing_prompt = profile.comment_style_prompt or ""
+    else:
+        vertical = BrandVertical.SAJU
+        existing_prompt = ""
+
+    new_profile = BrandProfile(
+        name=f"threads-comment-{str(account.id)[:8]}-{uuid4().hex[:6]}",
+        vertical_type=vertical,
+        comment_style_prompt=existing_prompt,
+        active=True,
+    )
+    db.add(new_profile)
+    db.flush()
+    account.brand_profile_id = new_profile.id
+    return new_profile
+
+
 @router.get("/")
 def landing_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user(request, db)
@@ -360,6 +392,14 @@ def app_account_workspace(
         selected_ig = next((acc for acc in ig_accounts if acc.id == ig_account_id), None)
     if selected_ig is None and ig_accounts:
         selected_ig = ig_accounts[0]
+
+    threads_comment_style_prompt = ""
+    threads_comment_profile_name = ""
+    if threads_account.brand_profile_id:
+        profile = db.get(BrandProfile, threads_account.brand_profile_id)
+        if profile:
+            threads_comment_style_prompt = (profile.comment_style_prompt or "").strip()
+            threads_comment_profile_name = profile.name
 
     get_or_create_profile_by_vertical(db, BrandVertical.COUPANG)
     get_or_create_profile_by_vertical(db, BrandVertical.SAJU)
@@ -637,6 +677,8 @@ def app_account_workspace(
             "scheduled_display_map": scheduled_display_map,
             "brand_profiles": brand_profiles,
             "prompt_settings": prompt_settings,
+            "threads_comment_style_prompt": threads_comment_style_prompt,
+            "threads_comment_profile_name": threads_comment_profile_name,
             "saju_preview_form": saju_form,
             "saju_preview": saju_preview,
             "saju_preview_error": saju_preview_error,
@@ -1074,6 +1116,58 @@ def web_save_vertical_prompts(
                 ig_account_id=ig_account_id,
                 biz_date=target_date,
                 flash=f"프롬프트저장실패:{_short_error_message(exc)}",
+            ),
+            status_code=303,
+        )
+
+
+@router.post("/app/accounts/{threads_account_id}/threads/comment-style/save")
+def web_save_threads_comment_style_prompt(
+    threads_account_id: UUID,
+    request: Request,
+    ig_account_id: UUID | None = Form(default=None),
+    biz_date: date | None = Form(default=None),
+    comment_style_prompt: str = Form(default=""),
+    db: Session = Depends(get_db),
+):
+    maybe_user = _require_user_or_redirect(request, db)
+    if isinstance(maybe_user, RedirectResponse):
+        return maybe_user
+
+    target_date = biz_date or kst_today()
+    account = db.get(ThreadsAccount, threads_account_id)
+    if not account:
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash="Threads계정을찾을수없습니다",
+            ),
+            status_code=303,
+        )
+
+    try:
+        profile = _ensure_threads_comment_profile(db, account)
+        profile.comment_style_prompt = comment_style_prompt.strip()
+        db.commit()
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash="스레드댓글AI프롬프트저장완료",
+            ),
+            status_code=303,
+        )
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        return RedirectResponse(
+            _workspace_url(
+                threads_account_id,
+                ig_account_id=ig_account_id,
+                biz_date=target_date,
+                flash=f"댓글AI프롬프트저장실패:{_short_error_message(exc)}",
             ),
             status_code=303,
         )

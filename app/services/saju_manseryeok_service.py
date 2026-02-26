@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 HEAVENLY_STEMS = ["갑", "을", "병", "정", "무", "기", "경", "신", "임", "계"]
 EARTHLY_BRANCHES = ["자", "축", "인", "묘", "진", "사", "오", "미", "신", "유", "술", "해"]
@@ -268,7 +268,10 @@ SOLAR_TERM_C_21ST = [
     21.94,
 ]
 
-SOLAR_TERM_YEAR_DELTA: dict[int, dict[int, int]] = {}
+SOLAR_TERM_YEAR_DELTA: dict[int, dict[int, int]] = {
+    # KASI 역서 기준 검증 보정 (필요 시 연도별 추가)
+    12: {1996: -1},  # 소서
+}
 
 MONTH_BRANCHES = {
     1: "인",
@@ -535,39 +538,52 @@ def lunar_to_solar(year: int, month: int, day: int, is_leap_month: bool) -> tupl
     return converted.year, converted.month, converted.day
 
 
-def _get_solar_term_date(year: int, term_index: int) -> date:
+def _get_solar_term_datetime(year: int, term_index: int) -> datetime:
     if year < 1901 or year > 2100:
         raise ValueError("절기 계산 지원 범위는 1901~2100년입니다.")
 
     year_in_century = year % 100
     coeffs = SOLAR_TERM_C_20TH if year <= 2000 else SOLAR_TERM_C_21ST
     coeff = coeffs[term_index]
-    # 통상절기 계산식: floor(y*0.2422 + C) - floor((y-1)/4)
-    day = int(year_in_century * 0.2422 + coeff) - int((year_in_century - 1) / 4)
-    day += SOLAR_TERM_YEAR_DELTA.get(term_index, {}).get(year, 0)
+    # 통상절기 계산식(절기 시각 추정): y*0.2422 + C - floor((y-1)/4)
+    raw_day = year_in_century * 0.2422 + coeff - int((year_in_century - 1) / 4)
+    raw_day += SOLAR_TERM_YEAR_DELTA.get(term_index, {}).get(year, 0)
+    day = int(raw_day)
+    day_fraction = raw_day - day
     month = term_index // 2 + 1
-    return date(year, month, max(1, day))
+    base = datetime(year, month, 1)
+    return base + timedelta(days=max(1, day) - 1 + day_fraction)
+
+
+def _get_solar_term_date(year: int, term_index: int) -> date:
+    return _get_solar_term_datetime(year, term_index).date()
 
 
 def _get_year_pillar(year: int) -> tuple[str, str]:
     return HEAVENLY_STEMS[(year - 4) % 10], EARTHLY_BRANCHES[(year - 4) % 12]
 
 
-def _get_month_pillar(year: int, month: int, day: int) -> tuple[str, str]:
-    current = date(year, month, day)
-    lichun = _get_solar_term_date(year, 2)
+def _get_month_pillar(
+    year: int,
+    month: int,
+    day: int,
+    birth_hour: int = 12,
+    birth_minute: int = 0,
+) -> tuple[str, str]:
+    current = datetime(year, month, day, birth_hour, birth_minute)
+    lichun = _get_solar_term_datetime(year, 2)
     adjusted_year = year - 1 if current < lichun else year
 
-    month_starts: list[tuple[int, date]] = []
+    month_starts: list[tuple[int, datetime]] = []
     for month_no in range(1, 12):
         term_index = month_no * 2
-        month_starts.append((month_no, _get_solar_term_date(adjusted_year, term_index)))
+        month_starts.append((month_no, _get_solar_term_datetime(adjusted_year, term_index)))
     # 12월(축월)은 다음 해 소한부터 시작
-    month_starts.append((12, _get_solar_term_date(adjusted_year + 1, 0)))
+    month_starts.append((12, _get_solar_term_datetime(adjusted_year + 1, 0)))
 
     solar_term_month = 11  # 입춘 이전 구간의 기본값: 자월
-    for month_no, start_date in month_starts:
-        if current >= start_date:
+    for month_no, start_dt in month_starts:
+        if current >= start_dt:
             solar_term_month = month_no
         else:
             break
@@ -611,7 +627,13 @@ def calculate_four_pillars(birth: BirthInfoPartial, *, allow_unknown_hour: bool 
         year, month, day = lunar_to_solar(year, month, day, bool(birth.is_leap_month))
 
     year_stem, year_branch = _get_year_pillar(year)
-    month_stem, month_branch = _get_month_pillar(year, month, day)
+    month_stem, month_branch = _get_month_pillar(
+        year,
+        month,
+        day,
+        birth_hour=(birth.hour if birth.hour is not None else 12),
+        birth_minute=minute,
+    )
     day_stem, day_branch = _get_day_pillar(year, month, day)
     hour_known = birth.hour is not None
     if hour_known:

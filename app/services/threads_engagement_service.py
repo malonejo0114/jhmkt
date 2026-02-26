@@ -175,6 +175,16 @@ def _is_threads_permission_error(exc: Exception) -> bool:
     )
 
 
+def _is_threads_missing_resource_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "requested resource does not exist" in message
+        or "unsupported get request" in message
+        or '"code":24' in message
+        or '"code": 24' in message
+    )
+
+
 def _list_threads_comments_with_fallback(
     db: Session,
     *,
@@ -290,6 +300,8 @@ def ingest_threads_comment_events_polling(
                         limit=comment_limit,
                     )
                 except Exception as exc:  # noqa: BLE001
+                    if _is_threads_missing_resource_error(exc):
+                        continue
                     poll_errors += 1
                     if len(poll_error_samples) < 3:
                         poll_error_samples.append(

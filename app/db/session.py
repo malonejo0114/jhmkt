@@ -17,7 +17,14 @@ def _normalize_database_url(raw_url: str) -> str:
     return url
 
 
-engine = create_engine(_normalize_database_url(settings.database_url), pool_pre_ping=True)
+database_url = _normalize_database_url(settings.database_url)
+engine_kwargs: dict = {"pool_pre_ping": True}
+if database_url.startswith("postgresql+psycopg://"):
+    # Supabase pooler/pgBouncer(transaction pooling) 환경에서
+    # psycopg prepared statement 충돌(DuplicatePreparedStatement)을 피한다.
+    engine_kwargs["connect_args"] = {"prepare_threshold": None}
+
+engine = create_engine(database_url, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

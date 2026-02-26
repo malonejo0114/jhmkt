@@ -23,6 +23,7 @@ from app.services.meta_oauth_service import (
     build_authorize_url,
     build_oauth_state,
     exchange_code_for_token,
+    exchange_threads_long_lived_token,
     fetch_instagram_identity,
     fetch_threads_identity,
 )
@@ -141,11 +142,13 @@ def oauth_connect_callback(
     try:
         token = exchange_code_for_token(provider, code)
         if provider == "threads":
-            identity = fetch_threads_identity(token)
+            long_lived_token, token_expires_at = exchange_threads_long_lived_token(token)
+            identity = fetch_threads_identity(long_lived_token)
             payload = ThreadsAccountCreate(
                 name=identity["name"],
                 threads_user_id=identity["threads_user_id"],
-                access_token=token,
+                access_token=long_lived_token,
+                token_expires_at=token_expires_at,
             )
             upsert_threads_account(db, payload)
             return RedirectResponse("/app?flash=Threads 계정 연동 완료", status_code=303)

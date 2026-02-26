@@ -115,6 +115,7 @@ def _publish_threads_job(db: Session, job: PostJob) -> dict[str, Any]:
                 "idempotent": True,
             }
         reply_post_id = try_send_threads_comment_reply(
+            db=db,
             account=account,
             reply_to_id=existing.root_post_id,
             message=reply_text,
@@ -390,7 +391,7 @@ def execute_threads_insights_task(db: Session, threads_post_id: str, media_id: s
     if not account:
         raise ValueError("threads account not found")
 
-    insight = collect_threads_insights(account=account, media_id=media_id)
+    insight = collect_threads_insights(db=db, account=account, media_id=media_id)
 
     from app.models import ThreadsInsight
 

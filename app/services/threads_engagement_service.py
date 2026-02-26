@@ -220,6 +220,7 @@ def ingest_threads_comment_events_polling(
                 continue
             try:
                 comments = list_threads_comments(
+                    db=db,
                     account=account,
                     media_id=root_post_id,
                     limit=comment_limit,
@@ -435,6 +436,7 @@ def process_pending_threads_reply_jobs(
 
         try:
             sent_reply_id = send_threads_comment_reply(
+                db=db,
                 account=account,
                 reply_to_id=event.external_reply_id,
                 message=job.reply_text,

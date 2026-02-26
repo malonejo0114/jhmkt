@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from app.core.config import get_settings
@@ -109,6 +110,51 @@ def exchange_code_for_token(provider: str, code: str) -> str:
     if not token:
         raise ValueError("OAuth 토큰 교환 실패")
     return token
+
+
+def _compute_token_expires_at(expires_in_raw: object) -> datetime | None:
+    try:
+        expires_in = int(str(expires_in_raw or "").strip())
+    except ValueError:
+        return None
+    if expires_in <= 0:
+        return None
+    return datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+
+
+def exchange_threads_long_lived_token(short_lived_access_token: str) -> tuple[str, datetime | None]:
+    client_secret = _client_secret_for_provider("threads")
+    if not client_secret:
+        raise ValueError("THREADS_APP_SECRET(또는 META_APP_SECRET) 설정이 필요합니다.")
+
+    data = request_json(
+        "GET",
+        "https://graph.threads.net/access_token",
+        params={
+            "grant_type": "th_exchange_token",
+            "client_secret": client_secret,
+            "access_token": short_lived_access_token,
+        },
+    )
+    token = str(data.get("access_token") or "").strip()
+    if not token:
+        raise ValueError("Threads long-lived 토큰 교환 실패")
+    return token, _compute_token_expires_at(data.get("expires_in"))
+
+
+def refresh_threads_access_token(long_lived_access_token: str) -> tuple[str, datetime | None]:
+    data = request_json(
+        "GET",
+        "https://graph.threads.net/refresh_access_token",
+        params={
+            "grant_type": "th_refresh_token",
+            "access_token": long_lived_access_token,
+        },
+    )
+    token = str(data.get("access_token") or long_lived_access_token).strip()
+    if not token:
+        raise ValueError("Threads 토큰 갱신 실패")
+    return token, _compute_token_expires_at(data.get("expires_in"))
 
 
 def fetch_threads_identity(access_token: str) -> dict:

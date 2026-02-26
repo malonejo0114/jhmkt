@@ -71,7 +71,7 @@ from app.services.generation_service import (
     save_vertical_prompt_settings,
 )
 from app.services.improvement_service import run_daily_improvement, run_weekly_improvement
-from app.services.job_execution_service import dispatch_due_jobs_local
+from app.services.job_execution_service import dispatch_due_jobs_local, execute_publish_job
 from app.services.job_orchestrator import enqueue_job_by_id, enqueue_pending_jobs_for_units, run_daily_bootstrap
 from app.services.jobs_service import RetryNotAllowedError, retry_job
 from app.services.render_service import ensure_rendered_assets
@@ -1103,6 +1103,7 @@ async def web_publish_manual_threads(
 
     try:
         result = publish_threads_manual_post(
+            db=db,
             account=account,
             text=clean_text,
             reply_text=first_reply.strip(),
@@ -1445,7 +1446,9 @@ def web_process_threads_comments(
         )
         flash = (
             "스레드댓글처리완료"
+            f"|posts={ingest_result.get('scanned_posts', 0)}"
             f"|events={ingest_result.get('created_events', 0)}"
+            f"|poll_errors={ingest_result.get('poll_errors', 0)}"
             f"|jobs={queue_result.get('created_jobs', 0)}"
             f"|sent={send_result.get('sent', 0)}"
             f"|failed={send_result.get('failed', 0)}"
@@ -1960,6 +1963,7 @@ def web_publish_content_threads_now(
     user = maybe_user
 
     try:
+        settings = get_settings()
         result = approve_channel_and_prepare_publish(
             db,
             content_unit_id,
@@ -1998,8 +2002,16 @@ def web_publish_content_threads_now(
             job.attempts = 0
             job.status = JobStatus.PENDING
             db.commit()
-            enqueue_job_by_id(db, job.id)
-            flash = f"스레드 바로올리기큐등록(job={job.id})"
+            if settings.cloud_tasks_enabled:
+                enqueue_job_by_id(db, job.id)
+                flash = f"스레드 바로올리기큐등록(job={job.id})"
+            else:
+                run_result = execute_publish_job(db, job.id, expected_channel=ChannelType.THREADS)
+                run_status = str(run_result.get("status") or "UNKNOWN")
+                error_code = str(run_result.get("error_code") or "").strip()
+                flash = f"스레드 바로올리기실행(job={job.id}|status={run_status})"
+                if error_code:
+                    flash += f"|error={error_code}"
 
         if warnings:
             flash += f"|warning={';'.join(warnings)}"

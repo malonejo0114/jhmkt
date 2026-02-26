@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -7,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_db
+from app.models import BrandVertical
 from app.schemas.accounts import InstagramAccountCreate, ThreadsAccountCreate
 from app.services.accounts_service import upsert_instagram_account, upsert_threads_account
 from app.services.auth_service import (
@@ -24,7 +27,7 @@ from app.services.meta_oauth_service import (
     fetch_threads_identity,
 )
 
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 router = APIRouter(tags=["auth"])
 
 
@@ -81,7 +84,12 @@ def logout_submit(request: Request):
 
 
 @router.get("/auth/connect/{provider}/start")
-def oauth_connect_start(provider: str, request: Request, db: Session = Depends(get_db)):
+def oauth_connect_start(
+    provider: str,
+    request: Request,
+    vertical: str | None = None,
+    db: Session = Depends(get_db),
+):
     if provider not in {"threads", "instagram"}:
         return RedirectResponse("/app?flash=지원하지 않는 연동 타입입니다.", status_code=303)
 
@@ -97,6 +105,11 @@ def oauth_connect_start(provider: str, request: Request, db: Session = Depends(g
         state = build_oauth_state()
         request.session["oauth_state"] = state
         request.session["oauth_provider"] = provider
+        if provider == "instagram" and vertical:
+            try:
+                request.session["oauth_brand_vertical"] = BrandVertical(vertical).value
+            except ValueError:
+                return RedirectResponse("/app?flash=유효하지 않은 브랜드 타입입니다.", status_code=303)
         url = build_authorize_url(provider, state)
     except ValueError as exc:
         return RedirectResponse(f"/app?flash={str(exc)}", status_code=303)
@@ -123,6 +136,7 @@ def oauth_connect_callback(
 
     request.session.pop("oauth_state", None)
     request.session.pop("oauth_provider", None)
+    oauth_brand_vertical = request.session.pop("oauth_brand_vertical", None)
 
     try:
         token = exchange_code_for_token(provider, code)
@@ -141,6 +155,7 @@ def oauth_connect_callback(
             name=identity["name"],
             ig_user_id=identity["ig_user_id"],
             access_token=identity["access_token"],
+            brand_vertical=BrandVertical(oauth_brand_vertical) if oauth_brand_vertical else None,
         )
         upsert_instagram_account(db, payload)
         return RedirectResponse("/app?flash=Instagram 계정 연동 완료", status_code=303)

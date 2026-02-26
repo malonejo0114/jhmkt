@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
@@ -7,12 +9,14 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.internal import router as internal_router
+from app.api.webhooks import router as webhook_router
 from app.api.web import router as web_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 
 settings = get_settings()
 configure_logging()
+APP_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.add_middleware(
@@ -26,8 +30,9 @@ app.add_middleware(
 app.include_router(admin_router)
 app.include_router(auth_router)
 app.include_router(internal_router)
+app.include_router(webhook_router)
 app.include_router(web_router)
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+app.mount("/static", StaticFiles(directory=str(APP_DIR / "static")), name="static")
 
 
 @app.get("/healthz")

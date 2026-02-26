@@ -86,7 +86,7 @@ from app.services.asset_storage import asset_public_url
 from app.services.setup_service import get_setup_summary
 from app.services.time_utils import kst_today
 
-templates = Jinja2Templates(directory="app/templates")
+templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / "templates"))
 router = APIRouter(tags=["web"])
 
 

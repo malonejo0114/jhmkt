@@ -161,6 +161,28 @@ def landing_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "landing.html", {})
 
 
+@router.get("/privacy-policy")
+def privacy_policy_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "privacy_policy.html",
+        {
+            "effective_date": "2026-02-26",
+        },
+    )
+
+
+@router.get("/terms-of-service")
+def terms_of_service_page(request: Request):
+    return templates.TemplateResponse(
+        request,
+        "terms_of_service.html",
+        {
+            "effective_date": "2026-02-26",
+        },
+    )
+
+
 @router.get("/web")
 def legacy_web_redirect():
     return RedirectResponse("/app", status_code=302)

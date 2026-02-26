@@ -26,6 +26,15 @@ from app.services.publisher_service import list_threads_comments, send_threads_c
 from app.services.retry_policy import next_retry_at
 
 
+def ensure_threads_engagement_tables(db: Session) -> None:
+    bind = db.get_bind()
+    if bind is None:
+        return
+    with bind.begin() as conn:
+        ThreadsCommentEvent.__table__.create(bind=conn, checkfirst=True)
+        ThreadsReplyJob.__table__.create(bind=conn, checkfirst=True)
+
+
 def _threads_event_hash(
     *,
     threads_account_id: UUID,
@@ -81,6 +90,7 @@ def ingest_threads_comment_events_polling(
     limit_comments_per_post: int = 50,
     threads_account_id: UUID | None = None,
 ) -> dict[str, Any]:
+    ensure_threads_engagement_tables(db)
     settings = get_settings()
     if not settings.engagement_enabled:
         return {"status": "SKIPPED_DISABLED", "created_events": 0}
@@ -216,6 +226,7 @@ def create_threads_reply_jobs_for_pending_events(
     *,
     threads_account_id: UUID | None = None,
 ) -> dict[str, Any]:
+    ensure_threads_engagement_tables(db)
     settings = get_settings()
     if not settings.engagement_enabled:
         return {"status": "SKIPPED_DISABLED", "created_jobs": 0, "skipped_events": 0}
@@ -300,6 +311,7 @@ def process_pending_threads_reply_jobs(
     *,
     threads_account_id: UUID | None = None,
 ) -> dict[str, Any]:
+    ensure_threads_engagement_tables(db)
     now = datetime.now(timezone.utc)
     jobs = (
         db.execute(
@@ -378,6 +390,7 @@ def process_pending_threads_reply_jobs(
 
 
 def retry_threads_reply_job(db: Session, reply_job_id: UUID) -> ThreadsReplyJob:
+    ensure_threads_engagement_tables(db)
     job = db.get(ThreadsReplyJob, reply_job_id)
     if not job:
         raise ValueError(f"threads_reply_job_id={reply_job_id} not found")
@@ -399,6 +412,7 @@ def retry_threads_reply_job(db: Session, reply_job_id: UUID) -> ThreadsReplyJob:
 
 
 def list_threads_comment_events(db: Session, limit: int = 100) -> list[ThreadsCommentEvent]:
+    ensure_threads_engagement_tables(db)
     return (
         db.execute(
             select(ThreadsCommentEvent)
@@ -411,6 +425,7 @@ def list_threads_comment_events(db: Session, limit: int = 100) -> list[ThreadsCo
 
 
 def list_threads_reply_jobs(db: Session, limit: int = 100) -> list[ThreadsReplyJob]:
+    ensure_threads_engagement_tables(db)
     return (
         db.execute(
             select(ThreadsReplyJob)

@@ -3,12 +3,14 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import hmac
+from urllib.parse import quote_plus, urlencode
 
 from app.core.config import get_settings
 from app.services.exceptions import PermanentPublishError
 from app.services.external_http import request_json
 
 DEEPLINK_PATH = "/v2/providers/affiliate_open_api/apis/openapi/v1/deeplink"
+PRODUCT_SEARCH_PATH = "/v2/providers/affiliate_open_api/apis/openapi/products/search"
 
 
 def _signed_date() -> str:
@@ -77,3 +79,70 @@ def create_coupang_deeplink(original_url: str) -> str:
         f"Coupang deeplink 응답 파싱 실패(rCode={r_code or 'N/A'})",
         code="COUPANG_RESPONSE_INVALID",
     )
+
+
+def _first_http_url(values: list[str | None]) -> str | None:
+    for value in values:
+        if isinstance(value, str) and value.startswith("http"):
+            return value
+    return None
+
+
+def find_coupang_best_product_url(keyword: str) -> str | None:
+    settings = get_settings()
+    if settings.run_mode != "live":
+        return None
+
+    access_key = settings.coupang_access_key.strip()
+    secret_key = settings.coupang_secret_key.strip()
+    if not access_key or not secret_key:
+        return None
+
+    query = urlencode({"keyword": keyword, "limit": 1})
+    signed_date = _signed_date()
+    auth = _authorization(access_key, secret_key, signed_date, "GET", PRODUCT_SEARCH_PATH, query)
+
+    try:
+        data = request_json(
+            "GET",
+            f"{settings.coupang_base_url.rstrip('/')}{PRODUCT_SEARCH_PATH}?{query}",
+            headers={
+                "Authorization": auth,
+                "Content-Type": "application/json",
+            },
+            timeout=12.0,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+
+    candidates: list[dict] = []
+    if isinstance(data.get("data"), dict):
+        product_data = data["data"].get("productData")
+        if isinstance(product_data, list):
+            candidates = [item for item in product_data if isinstance(item, dict)]
+    elif isinstance(data.get("data"), list):
+        candidates = [item for item in data["data"] if isinstance(item, dict)]
+    elif isinstance(data.get("products"), list):
+        candidates = [item for item in data["products"] if isinstance(item, dict)]
+
+    if not candidates:
+        return None
+
+    first = candidates[0]
+    return _first_http_url(
+        [
+            first.get("productUrl"),
+            first.get("productURL"),
+            first.get("url"),
+            first.get("productLink"),
+            first.get("deepLink"),
+            first.get("landingUrl"),
+        ]
+    )
+
+
+def resolve_coupang_source_url(keyword: str) -> str:
+    best = find_coupang_best_product_url(keyword.strip())
+    if best:
+        return best
+    return f"https://www.coupang.com/np/search?q={quote_plus(keyword.strip())}"

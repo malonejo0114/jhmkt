@@ -67,7 +67,10 @@ def build_authorize_url(provider: str, state: str) -> str:
             raise ValueError("THREADS_APP_ID(또는 META_APP_ID) 가 설정되지 않았습니다.")
         raise ValueError("INSTAGRAM_APP_ID(또는 META_APP_ID) 가 설정되지 않았습니다.")
 
-    base = f"https://www.facebook.com/{settings.meta_oauth_version}/dialog/oauth"
+    if provider == "threads":
+        base = "https://www.threads.net/oauth/authorize"
+    else:
+        base = f"https://www.facebook.com/{settings.meta_oauth_version}/dialog/oauth"
     query = {
         "client_id": client_id,
         "redirect_uri": callback_url(provider),
@@ -87,7 +90,10 @@ def exchange_code_for_token(provider: str, code: str) -> str:
             raise ValueError("THREADS_APP_ID/THREADS_APP_SECRET(또는 META_APP_ID/META_APP_SECRET) 설정이 필요합니다.")
         raise ValueError("INSTAGRAM_APP_ID/INSTAGRAM_APP_SECRET(또는 META_APP_ID/META_APP_SECRET) 설정이 필요합니다.")
 
-    token_url = f"https://graph.facebook.com/{settings.meta_oauth_version}/oauth/access_token"
+    if provider == "threads":
+        token_url = "https://graph.threads.net/oauth/access_token"
+    else:
+        token_url = f"https://graph.facebook.com/{settings.meta_oauth_version}/oauth/access_token"
     data = request_json(
         "GET",
         token_url,
@@ -96,6 +102,7 @@ def exchange_code_for_token(provider: str, code: str) -> str:
             "client_secret": client_secret,
             "redirect_uri": callback_url(provider),
             "code": code,
+            **({"grant_type": "authorization_code"} if provider == "threads" else {}),
         },
     )
     token = str(data.get("access_token") or "")

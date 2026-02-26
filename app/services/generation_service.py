@@ -333,17 +333,17 @@ def _manual_schedule_times(
     start_h = max(0, min(23, start_hour))
     end_h = max(1, min(23, end_hour))
     if end_h <= start_h:
-        end_h = min(start_h + 1, 23)
+        raise ValueError("종료 시각은 시작 시각보다 늦어야 합니다.")
 
     start_local = datetime.combine(biz_date, time(start_h, 0), tzinfo=KST)
     end_local = datetime.combine(biz_date, time(end_h, 0), tzinfo=KST)
     if biz_date == now_local.date():
-        # 오늘 생성은 현재 시각 이후 슬롯만 허용한다.
-        min_start = (now_local + timedelta(minutes=2)).replace(second=0, microsecond=0)
-        if min_start > start_local:
-            start_local = min_start
+        if start_local <= now_local:
+            raise ValueError("오늘은 현재 시각 이후 시작 시각만 가능합니다. 시작 시각을 더 늦게 설정해주세요.")
+        if end_local <= now_local:
+            raise ValueError("종료 시각이 현재 시각보다 이전입니다. 종료 시각을 더 늦게 설정해주세요.")
     if end_local <= start_local:
-        raise ValueError("선택한 시간이 현재보다 이전입니다. 종료 시각을 더 늦게 설정해주세요.")
+        raise ValueError("종료 시각은 시작 시각보다 늦어야 합니다.")
 
     interval_seconds = (end_local - start_local).total_seconds() / (count + 1)
     times: list[datetime] = []

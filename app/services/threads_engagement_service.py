@@ -166,6 +166,53 @@ def _render_threads_reply_text(db: Session, account: ThreadsAccount, event: Thre
     return reply.strip() or fallback
 
 
+def _is_threads_permission_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "does not have permission for this action" in message
+        or '"code":10' in message
+        or '"code": 10' in message
+    )
+
+
+def _list_threads_comments_with_fallback(
+    db: Session,
+    *,
+    primary_account: ThreadsAccount,
+    all_accounts: list[ThreadsAccount],
+    media_id: str,
+    limit: int,
+) -> tuple[list[Any], str]:
+    try:
+        comments = list_threads_comments(
+            db=db,
+            account=primary_account,
+            media_id=media_id,
+            limit=limit,
+        )
+        return comments, primary_account.name
+    except Exception as primary_exc:  # noqa: BLE001
+        if not _is_threads_permission_error(primary_exc):
+            raise
+
+        last_error: Exception = primary_exc
+        for fallback_account in all_accounts:
+            if fallback_account.id == primary_account.id:
+                continue
+            try:
+                comments = list_threads_comments(
+                    db=db,
+                    account=fallback_account,
+                    media_id=media_id,
+                    limit=limit,
+                )
+                return comments, fallback_account.name
+            except Exception as fallback_exc:  # noqa: BLE001
+                last_error = fallback_exc
+                continue
+        raise last_error
+
+
 def ingest_threads_comment_events_polling(
     db: Session,
     *,
@@ -181,13 +228,22 @@ def ingest_threads_comment_events_polling(
     post_limit = max(1, min(limit_posts_per_account, 100))
     comment_limit = max(1, min(limit_comments_per_post, 100))
 
-    accounts = (
+    target_accounts = (
         db.execute(
             select(ThreadsAccount)
             .where(
                 ThreadsAccount.status == AccountStatus.ACTIVE,
                 ThreadsAccount.id == threads_account_id if threads_account_id else True,
             )
+            .order_by(ThreadsAccount.created_at.asc())
+        )
+        .scalars()
+        .all()
+    )
+    fallback_accounts = (
+        db.execute(
+            select(ThreadsAccount)
+            .where(ThreadsAccount.status == AccountStatus.ACTIVE)
             .order_by(ThreadsAccount.created_at.asc())
         )
         .scalars()
@@ -201,7 +257,7 @@ def ingest_threads_comment_events_polling(
     scanned_comments = 0
     skipped_duplicate = 0
 
-    for account in accounts:
+    for account in target_accounts:
         posts = (
             db.execute(
                 select(ThreadsPost)
@@ -226,9 +282,10 @@ def ingest_threads_comment_events_polling(
 
             for media_id in poll_targets:
                 try:
-                    comments = list_threads_comments(
+                    comments, poll_token_account = _list_threads_comments_with_fallback(
                         db=db,
-                        account=account,
+                        primary_account=account,
+                        all_accounts=fallback_accounts,
                         media_id=media_id,
                         limit=comment_limit,
                     )
@@ -296,6 +353,7 @@ def ingest_threads_comment_events_polling(
                             raw_payload={
                                 "root_post_id": root_post_id,
                                 "poll_media_id": media_id,
+                                "poll_token_account": poll_token_account,
                                 "reply": item.raw_payload,
                             },
                         )
@@ -305,7 +363,7 @@ def ingest_threads_comment_events_polling(
     db.commit()
     return {
         "status": "SUCCESS",
-        "accounts": len(accounts),
+        "accounts": len(target_accounts),
         "scanned_posts": scanned_posts,
         "scanned_comments": scanned_comments,
         "created_events": created,
@@ -352,6 +410,15 @@ def create_threads_reply_jobs_for_pending_events(
             continue
 
         if event.external_from_id and event.external_from_id == account.threads_user_id:
+            event.status = CommentEventStatus.SKIPPED
+            event.status_reason = "SELF_REPLY"
+            skipped_events += 1
+            continue
+
+        if (
+            event.external_from_username
+            and str(event.external_from_username).strip().lower() == str(account.name).strip().lower()
+        ):
             event.status = CommentEventStatus.SKIPPED
             event.status_reason = "SELF_REPLY"
             skipped_events += 1
@@ -446,10 +513,17 @@ def process_pending_threads_reply_jobs(
         db.flush()
 
         try:
+            reply_target_id = (
+                str(event.external_media_id or "").strip()
+                or str(event.external_parent_reply_id or "").strip()
+                or str(event.external_reply_id or "").strip()
+            )
+            if not reply_target_id:
+                raise ValueError("THREADS_REPLY_TARGET_NOT_FOUND")
             sent_reply_id = send_threads_comment_reply(
                 db=db,
                 account=account,
-                reply_to_id=event.external_reply_id,
+                reply_to_id=reply_target_id,
                 message=job.reply_text,
             )
             job.status = ReplyJobStatus.SENT

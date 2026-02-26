@@ -426,33 +426,45 @@ def app_account_workspace(
         .all()
     )
 
-    comment_rules = list_comment_rules(db, instagram_account_id=selected_ig.id) if selected_ig else []
-    recent_comment_events = (
-        [item for item in list_comment_events(db, limit=50) if selected_ig and item.instagram_account_id == selected_ig.id][:20]
-        if selected_ig
-        else []
-    )
-    recent_reply_jobs = (
-        [item for item in list_reply_jobs(db, limit=50) if selected_ig and item.instagram_account_id == selected_ig.id][:20]
-        if selected_ig
-        else []
-    )
+    comment_rules: list[Any] = []
+    recent_comment_events: list[Any] = []
+    recent_reply_jobs: list[Any] = []
     recent_qa_rows: list[dict[str, str | None]] = []
-    if selected_ig and recent_comment_events:
-        reply_by_event = {job.comment_event_id: job for job in recent_reply_jobs}
-        for event in recent_comment_events:
-            matched = reply_by_event.get(event.id)
-            recent_qa_rows.append(
-                {
-                    "question": event.comment_text or "",
-                    "answer": (matched.reply_text if matched else "-") or "-",
-                    "status": (matched.status.value if matched else event.status.value),
-                    "created_at": (
-                        matched.created_at.isoformat()
-                        if matched and matched.created_at
-                        else (event.created_at.isoformat() if event.created_at else "")
-                    ),
-                }
+    instagram_engagement_available = True
+    instagram_engagement_error = ""
+    if selected_ig:
+        try:
+            comment_rules = list_comment_rules(db, instagram_account_id=selected_ig.id)
+            recent_comment_events = [
+                item
+                for item in list_comment_events(db, limit=50)
+                if item.instagram_account_id == selected_ig.id
+            ][:20]
+            recent_reply_jobs = [
+                item
+                for item in list_reply_jobs(db, limit=50)
+                if item.instagram_account_id == selected_ig.id
+            ][:20]
+            if recent_comment_events:
+                reply_by_event = {job.comment_event_id: job for job in recent_reply_jobs}
+                for event in recent_comment_events:
+                    matched = reply_by_event.get(event.id)
+                    recent_qa_rows.append(
+                        {
+                            "question": event.comment_text or "",
+                            "answer": (matched.reply_text if matched else "-") or "-",
+                            "status": (matched.status.value if matched else event.status.value),
+                            "created_at": (
+                                matched.created_at.isoformat()
+                                if matched and matched.created_at
+                                else (event.created_at.isoformat() if event.created_at else "")
+                            ),
+                        }
+                    )
+        except Exception:  # noqa: BLE001
+            instagram_engagement_available = False
+            instagram_engagement_error = (
+                "인스타 댓글 기능 초기화가 필요합니다. DB 마이그레이션 후 사용하세요."
             )
 
     recent_threads_comment_events: list[Any] = []
@@ -513,6 +525,8 @@ def app_account_workspace(
             "recent_comment_events": recent_comment_events,
             "recent_reply_jobs": recent_reply_jobs,
             "recent_qa_rows": recent_qa_rows,
+            "instagram_engagement_available": instagram_engagement_available,
+            "instagram_engagement_error": instagram_engagement_error,
             "recent_threads_comment_events": recent_threads_comment_events,
             "recent_threads_reply_jobs": recent_threads_reply_jobs,
             "recent_threads_qa_rows": recent_threads_qa_rows,

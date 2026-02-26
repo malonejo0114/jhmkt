@@ -423,6 +423,9 @@
       <article class="mono-panel">
         <h3>8) 인스타 댓글 자동화 (선택)</h3>
         {% if selected_ig %}
+        {% if not instagram_engagement_available %}
+        <p class="mono-empty">{{ instagram_engagement_error or '인스타 댓글 기능을 불러오지 못했습니다.' }}</p>
+        {% else %}
         <form method="post" action="/app/accounts/{{ threads_account.id }}/comment-rules/simple" class="mono-form">
           <input type="hidden" name="ig_account_id" value="{{ selected_ig.id }}" />
           <input type="hidden" name="biz_date" value="{{ today }}" />
@@ -456,6 +459,7 @@
           <p class="mono-empty">댓글 룰이 없습니다.</p>
           {% endfor %}
         </div>
+        {% endif %}
         {% else %}
         <p class="mono-empty">Instagram 계정을 선택해 주세요.</p>
         {% endif %}
